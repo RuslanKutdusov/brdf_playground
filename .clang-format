@@ -1,0 +1,34 @@
+---
+BasedOnStyle: Chromium
+
+BreakBeforeBraces: Custom
+AlignTrailingComments: true
+AllowShortFunctionsOnASingleLine: false
+MaxEmptyLinesToKeep: 2
+BreakConstructorInitializersBeforeComma: true
+
+# Control of individual brace wrapping cases
+BraceWrapping: {
+    AfterClass: 'true'
+    AfterControlStatement: 'true'
+    AfterEnum : 'true'
+    AfterFunction : 'true'
+    AfterNamespace : 'false'
+    AfterStruct : 'true'
+    AfterUnion : 'true'
+    BeforeCatch : 'true'
+    BeforeElse : 'true'
+    IndentBraces : 'false'
+}
+
+AccessModifierOffset: '-4'
+ColumnLimit: '160'
+SortIncludes: 'false'
+Standard: Cpp11
+TabWidth: '4'
+IndentWidth: '4'
+UseTab: ForIndentation
+NamespaceIndentation: All
+CompactNamespaces: 'true'
+
+...

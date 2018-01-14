@@ -1,0 +1,12 @@
+.vs/
+x64/
+packages/
+*.dll
+*.exe
+*.pdb
+*.ipdb
+*.iobj
+*.ilk
+*.user
+*.aps
+imgui.ini
