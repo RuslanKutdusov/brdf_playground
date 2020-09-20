@@ -149,6 +149,7 @@
     <ClCompile Include="code\Camera.cpp" />
     <ClCompile Include="code\Device.cpp" />
     <ClCompile Include="code\File.cpp" />
+    <ClCompile Include="code\GaussLobattoIntegrator.cpp" />
     <ClCompile Include="code\Helpers.cpp" />
     <ClCompile Include="code\ImguiWrap.cpp" />
     <ClCompile Include="code\imgui\imgui.cpp">
@@ -183,6 +184,7 @@
     <ClCompile Include="code\EnvEmitter.cpp" />
     <ClCompile Include="code\ObjRenderer.cpp" />
     <ClCompile Include="code\ShaderCompiler.cpp" />
+    <ClCompile Include="code\SpectralPowerDistribution.cpp" />
     <ClCompile Include="code\SponzaRenderer.cpp" />
     <ClCompile Include="code\Time.cpp" />
     <ClCompile Include="code\UI.cpp" />
@@ -193,9 +195,11 @@
     <ClInclude Include="code\App.h" />
     <ClInclude Include="code\BrdfRenderer.h" />
     <ClInclude Include="code\Camera.h" />
+    <ClInclude Include="code\CIE.h" />
     <ClInclude Include="code\Device.h" />
     <ClInclude Include="code\File.h" />
     <ClInclude Include="code\FilePath.h" />
+    <ClInclude Include="code\GaussLobattoIntegrator.h" />
     <ClInclude Include="code\Helpers.h" />
     <ClInclude Include="code\ImguiWrap.h" />
     <ClInclude Include="code\imgui\imconfig.h" />
@@ -217,6 +221,7 @@
     <ClInclude Include="code\EnvEmitter.h" />
     <ClInclude Include="code\ObjRenderer.h" />
     <ClInclude Include="code\ShaderCompiler.h" />
+    <ClInclude Include="code\SpectralPowerDistribution.h" />
     <ClInclude Include="code\SponzaRenderer.h" />
     <ClInclude Include="code\Time.h" />
     <ClInclude Include="code\EnvMapFilter.h" />

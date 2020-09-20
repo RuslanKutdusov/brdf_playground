@@ -2,9 +2,6 @@
 #include "App.h"
 #include "Time.h"
 
-using namespace DirectX;
-
-
 static const char* kModelsPath[kObjectTypesCount] = {"models\\sphere.obj", "models\\cube.obj", "models\\shader_ball.obj"};
 
 
@@ -21,8 +18,40 @@ static void AppendXmlLine(std::string& xml, const char* format, ...)
 }
 
 
-App::App()
+static float safe_sqrt(float value)
 {
+	return std::sqrt(std::max(0.0f, value));
+}
+
+
+static float FresnelConductorExact(float cosThetaI, float eta, float k)
+{
+	/* Modified from "Optics" by K.D. Moeller, University Science Books, 1988 */
+
+	float cosThetaI2 = cosThetaI * cosThetaI, sinThetaI2 = 1 - cosThetaI2, sinThetaI4 = sinThetaI2 * sinThetaI2;
+
+	float temp1 = eta * eta - k * k - sinThetaI2;
+	float a2pb2 = safe_sqrt(temp1 * temp1 + 4 * k * k * eta * eta);
+	float a = safe_sqrt(0.5f * (a2pb2 + temp1));
+
+	float term1 = a2pb2 + cosThetaI2, term2 = 2 * a * cosThetaI;
+
+	float Rs2 = (term1 - term2) / (term1 + term2);
+
+	float term3 = a2pb2 * cosThetaI2 + sinThetaI4, term4 = term2 * sinThetaI2;
+
+	float Rp2 = Rs2 * (term3 - term4) / (term3 + term4);
+
+	return 0.5f * (Rp2 + Rs2);
+}
+
+
+App::App() : m_CIE_X(kCIE_X_SPD), m_CIE_Y(kCIE_Y_SPD), m_CIE_Z(kCIE_Z_SPD)
+{
+	m_CIE_normalization = 0.0f;
+	for (uint32_t i = 0; i < m_CIE_Y.Size(); ++i)
+		m_CIE_normalization += m_CIE_Y[i];
+	m_CIE_normalization = 1.0f / m_CIE_normalization;
 }
 
 
@@ -444,8 +473,19 @@ void App::ExportToMitsuba()
 			              diffuseReflectance[2]);
 			AppendXmlLine(xml, "		</bsdf>");
 		}
-		else if (instance.MaterialType == kMaterialSmoothConductor || instance.MaterialType == kMaterialRoughConductor)
+		else if (instance.MaterialType == kMaterialSmoothConductor)
 		{
+			AppendXmlLine(xml, "		<bsdf type=\"conductor\">");
+			AppendXmlLine(xml, "			<string name=\"material\" value=\"%s\"/>", m_singleObjScene.ior);
+			AppendXmlLine(xml, "		</bsdf>");
+		}
+		else if (instance.MaterialType == kMaterialRoughConductor)
+		{
+			AppendXmlLine(xml, "		<bsdf type=\"roughconductor\">");
+			AppendXmlLine(xml, "			<string name=\"material\" value=\"%s\"/>", m_singleObjScene.ior);
+			AppendXmlLine(xml, "			<string name=\"distribution\" value=\"ggx\"/>");
+			AppendXmlLine(xml, "			<float name=\"alpha\" value=\"%f\"/>", instance.Roughness * instance.Roughness);
+			AppendXmlLine(xml, "		</bsdf>");
 		}
 		else if (instance.MaterialType == kMaterialRoughPlastic)
 		{
@@ -522,6 +562,46 @@ void App::ExportToMitsuba()
 	FILE* f = fopen("mitsuba.xml", "wb");
 	fwrite(xml.data(), 1, xml.length(), f);
 	fclose(f);
+}
+
+
+XMVECTOR App::ComputeF0(const char* ior)
+{
+	SpectralPowerDistribution etaSPD;
+	FilePath path = ior;
+	path.SetExtension(".eta.spd");
+	etaSPD.InitFromFile(path.c_str());
+
+	SpectralPowerDistribution kSPD;
+	path = ior;
+	path.SetExtension(".k.spd");
+	kSPD.InitFromFile(path.c_str());
+
+	const float kAirIOR = 1.00028;
+	Spectrum eta(etaSPD), k(kSPD);
+	eta = eta * kAirIOR;
+	k = k * kAirIOR;
+
+#if 1
+	float etaRGB[3], kRGB[3];
+	eta.ToLinearRGB(etaRGB[0], etaRGB[1], etaRGB[2], m_CIE_X, m_CIE_Y, m_CIE_Z, m_CIE_normalization);
+	k.ToLinearRGB(kRGB[0], kRGB[1], kRGB[2], m_CIE_X, m_CIE_Y, m_CIE_Z, m_CIE_normalization);
+
+	float F0[3];
+	const float cosTheta = 1.0f;
+	for (uint32_t i = 0; i < 3; i++)
+		F0[i] = FresnelConductorExact(cosTheta, etaRGB[i], kRGB[i]);
+	return XMVectorSet(F0[0], F0[1], F0[2], 1.0f);
+#else
+	Spectrum F0;
+	const float cosTheta = 1.0f;
+	for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		F0[i] = FresnelConductorExact(cosTheta, eta[i], k[i]);
+
+	float r, g, b;
+	F0.ToLinearRGB(r, g, b, m_CIE_X, m_CIE_Y, m_CIE_Z, m_CIE_normalization);
+	return XMVectorSet(r, g, b, 1.0f);
+#endif
 }
 
 
@@ -626,6 +706,31 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		output.SetExtension(L".dds");
 		if (FAILED(SaveToDDSFile(compressedMipChain.GetImages(), compressedMipChain.GetImageCount(), compressedMipChain.GetMetadata(), DDS_FLAGS_FORCE_DX10_EXT,
 		                         output.c_str())))
+		{
+			LogStdErr("Failed to save output file '%S'\n", output.c_str());
+			return -1;
+		}
+
+		return 0;
+	}
+	else if (argc > 1 && wcscmp(argv[0], L"hdr") == 0)
+	{
+		if (argc < 2)
+			return -1;
+
+		FilePathW input = argv[1];
+
+		TexMetadata data;
+		ScratchImage image;
+		if (!LoadTexture(input, &data, image))
+		{
+			LogStdErr("Failed to load texture\n");
+			return -1;
+		}
+
+		FilePathW output = input;
+		output.SetExtension(L".hdr");
+		if (FAILED(SaveToHDRFile(*image.GetImage(0, 0, 0), output.c_str())))
 		{
 			LogStdErr("Failed to save output file '%S'\n", output.c_str());
 			return -1;

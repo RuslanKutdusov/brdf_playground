@@ -9,6 +9,7 @@
 #include "BrdfRenderer.h"
 #include "ObjRenderer.h"
 #include "PostProcess.h"
+#include "SpectralPowerDistribution.h"
 
 
 __declspec(align(16)) struct GlobalConstBuffer
@@ -47,7 +48,6 @@ enum ESceneType
 	kSceneSingleObject = 0,
 	kSceneObjectsGrid,
 	kSceneBrdfLobe,
-	kSceneSponza,
 
 	kSceneTypesCount
 };
@@ -99,6 +99,7 @@ struct SingleObjectSceneControls
 	EObjectType objType = kObjectSphere;
 	const char* textureMaterial = "";
 	const char* merlMaterial = "";
+	const char* ior = "";
 };
 
 
@@ -167,7 +168,13 @@ private:
 	Material m_material;
 	std::vector<FilePath> m_hdrFiles;
 	std::vector<FilePath> m_materials;
+	std::vector<FilePath> m_spdFiles;
 	std::vector<FilePath> m_merlMaterials;
+
+	Spectrum m_CIE_X;
+	Spectrum m_CIE_Y;
+	Spectrum m_CIE_Z;
+	float m_CIE_normalization;
 
 	void InitUI();
 	void OnNewFrame();
@@ -177,4 +184,5 @@ private:
 	PerspectiveCamera* GetCurrentCamera();
 	void RenderScene(ID3D12GraphicsCommandList* cmdList);
 	void ExportToMitsuba();
+	XMVECTOR ComputeF0(const char* ior);
 };

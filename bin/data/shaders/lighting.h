@@ -63,14 +63,14 @@ MaterialData InitMaterialData(uint type, float metalness, float perceptualRoughn
 			data.albedo = baseColor;
 			data.F0 = 0.0f;
 			if (type == kMaterialSmoothDiffuse)
-				data.roughness = 1e-06;
+				data.roughness = 0.0f;
 			break;
 		case kMaterialSmoothConductor:
 		case kMaterialRoughConductor:
 			data.albedo = 0.0f;
 			data.F0 = baseColor;
 			if (type == kMaterialSmoothConductor)
-				data.roughness = 1e-06;
+				data.roughness = 0.0f;
 			break;
 	}
 	return data;

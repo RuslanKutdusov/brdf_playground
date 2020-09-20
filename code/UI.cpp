@@ -104,6 +104,16 @@ static void Combo(const char* labal, const std::vector<FilePath>& files, const c
 }
 
 
+static bool FileNameEndingMatch(const FilePath& name, const char* ending)
+{
+	size_t len = strlen(ending);
+	if (name.length() <= len)
+		return false;
+	size_t offset = name.length() - len;
+	return strcmp(name.data() + offset, ending) == 0;
+}
+
+
 void App::InitUI()
 {
 	EnumerateFiles("data\\HDRs\\*.dds", m_hdrFiles);
@@ -122,6 +132,23 @@ void App::InitUI()
 	EnumerateFiles("data\\materials\\*", m_materials, true);
 	if (!m_materials.empty())
 		m_singleObjScene.textureMaterial = m_materials[0].c_str();
+
+	std::vector<FilePath> spdFiles;
+	EnumerateFiles("data\\SPDs\\*", spdFiles);
+	for (size_t i = 0; i < spdFiles.size();)
+	{
+		const char* eta = ".eta.spd";
+		const char* k = ".k.spd";
+		if (i + 1 < spdFiles.size() && FileNameEndingMatch(spdFiles[i], eta) && FileNameEndingMatch(spdFiles[i + 1], k))
+		{
+			m_spdFiles.push_back({spdFiles[i].data(), (uint32_t)(spdFiles[i].length() - strlen(eta))});
+			i += 2;
+		}
+		else
+			i++;
+	}
+	if (!m_spdFiles.empty())
+		m_singleObjScene.ior = m_spdFiles[0].c_str();
 
 	EnumerateFiles("data\\MERL\\*", m_merlMaterials);
 	if (!m_merlMaterials.empty())
@@ -242,7 +269,7 @@ void App::UpdateUI()
 
 	if (ImGui::CollapsingHeader("Scene controls", ImGuiTreeNodeFlags_DefaultOpen))
 	{
-		if (ImGui::Combo("Scene", (int*)&m_sceneType, "Single object\0Objects grid\0BRDF\0Sponza\0\0"))
+		if (ImGui::Combo("Scene", (int*)&m_sceneType, "Single object\0Objects grid\0BRDF\0\0"))
 			m_resetSampling = true;
 
 		if (m_sceneType == kSceneSingleObject || m_sceneType == kSceneObjectsGrid)
@@ -260,6 +287,8 @@ void App::UpdateUI()
 			{
 				if (m_singleObjInstanceData.MaterialType == kMaterialTexture)
 					m_material.Load(&m_device, m_singleObjScene.textureMaterial);
+				if (m_singleObjInstanceData.MaterialType == kMaterialSmoothConductor || m_singleObjInstanceData.MaterialType == kMaterialRoughConductor)
+					m_singleObjInstanceData.BaseColor = ComputeF0(m_singleObjScene.ior);
 				/*if (m_singleObjInstanceData.MaterialType == kMaterialMERL)
 				    g_merlMaterial.Load(DXUTGetD3D11Device(), m_singleObjScene.merlMaterial);*/
 				m_resetSampling = true;
@@ -288,6 +317,7 @@ void App::UpdateUI()
 				bool colorButton = false;
 				const char* colorButtonTitle = "Base color";
 				bool exportMitsubaButton = false;
+				bool iorCombo = false;
 				switch (m_singleObjInstanceData.MaterialType)
 				{
 					case kMaterialSimple:
@@ -306,8 +336,7 @@ void App::UpdateUI()
 						break;
 					case kMaterialSmoothConductor:
 					case kMaterialRoughConductor:
-						colorButton = true;
-						colorButtonTitle = "F0";
+						iorCombo = true;
 						if (m_singleObjInstanceData.MaterialType == kMaterialRoughConductor)
 							roughnessSlider = true;
 						exportMitsubaButton = true;
@@ -324,6 +353,14 @@ void App::UpdateUI()
 				{
 					if (ColorDialog(m_singleObjInstanceData.BaseColor))
 						m_resetSampling = true;
+				}
+				if (iorCombo)
+				{
+					Combo("IOR", m_spdFiles, m_singleObjScene.ior, [this](const char* selected, size_t idx) {
+						m_singleObjScene.ior = selected;
+						m_singleObjInstanceData.BaseColor = ComputeF0(selected);
+						m_resetSampling = true;
+					});
 				}
 				if (exportMitsubaButton && ImGui::Button("Export to Mitsuba"))
 					ExportToMitsuba();
