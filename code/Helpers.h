@@ -1,19 +1,12 @@
 #pragma once
 
-struct Float4
+inline XMFLOAT4 ToFloat4(const XMVECTOR& v)
 {
-	float x;
-	float y;
-	float z;
-	float w;
-};
-
-inline Float4 ToFloat4(const XMVECTOR& v)
-{
-	Float4 ret;
+	XMFLOAT4 ret;
 	memcpy(&ret, &v, sizeof(v));
 	return ret;
 }
+
 
 float ToRad(float deg);
 float ToDeg(float rad);

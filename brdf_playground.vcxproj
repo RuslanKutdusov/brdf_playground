@@ -59,7 +59,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FloatingPointModel>Fast</FloatingPointModel>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <AdditionalIncludeDirectories>3rdParty;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions> %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>WIN32;_DEBUG;DEBUG;PROFILE;_WINDOWS;_CRT_SECURE_NO_WARNINGS;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -149,7 +149,6 @@
     <ClCompile Include="code\Camera.cpp" />
     <ClCompile Include="code\Device.cpp" />
     <ClCompile Include="code\File.cpp" />
-    <ClCompile Include="code\GaussLobattoIntegrator.cpp" />
     <ClCompile Include="code\Helpers.cpp" />
     <ClCompile Include="code\ImguiWrap.cpp" />
     <ClCompile Include="code\imgui\imgui.cpp">
@@ -199,7 +198,7 @@
     <ClInclude Include="code\Device.h" />
     <ClInclude Include="code\File.h" />
     <ClInclude Include="code\FilePath.h" />
-    <ClInclude Include="code\GaussLobattoIntegrator.h" />
+    <ClInclude Include="code\Fresnel.h" />
     <ClInclude Include="code\Helpers.h" />
     <ClInclude Include="code\ImguiWrap.h" />
     <ClInclude Include="code\imgui\imconfig.h" />

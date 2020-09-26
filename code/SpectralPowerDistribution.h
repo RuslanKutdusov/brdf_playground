@@ -1,43 +1,41 @@
 #pragma once
 #include <vector>
-#include "CIE.h"
 
 static const float kSpectrumMinWavelength = 360.0f;
 static const float kSpectrumMaxWavelength = 830.0f;
 static const float kSpectrumRange = kSpectrumMaxWavelength - kSpectrumMinWavelength;
-static const uint32_t kSpectrumSamples = (uint32_t) kSpectrumRange + 1;
+static const uint32_t kSpectrumSamples = 50;
 
 
 class SpectralPowerDistribution
 {
 public:
-	struct Value
-	{
-		float wavelength;
-		float value;
-
-		bool operator<(const Value& v) const
-		{
-			return wavelength < v.wavelength;
-		}
-	};
-
 	SpectralPowerDistribution() = default;
 	SpectralPowerDistribution(const float* wavelength, const float* values, uint32_t entriesNum);
 
 	bool InitFromFile(const char* filename);
+
+	const float* Wavelength() const
+	{
+		return m_wavelengths.data();
+	}
+
+	const float* Values() const
+	{
+		return m_values.data();
+	}
 
 	size_t Size() const
 	{
 		return m_values.size();
 	}
 
-	Value& operator[](uint32_t i)
+	float& operator[](uint32_t i)
 	{
 		return m_values[i];
 	}
 
-	const Value& operator[](uint32_t i) const
+	const float& operator[](uint32_t i) const
 	{
 		return m_values[i];
 	}
@@ -68,47 +66,49 @@ public:
 	float Average(float lambdaMin, float lambdaMax) const;
 
 private:
-	std::vector<Value> m_values;
+	std::vector<float> m_wavelengths;
+	std::vector<float> m_values;
 };
-
-
-static const SpectralPowerDistribution kCIE_X_SPD(CIE_wavelengths, CIE_X_entries, kCIESamplesNum);
-static const SpectralPowerDistribution kCIE_Y_SPD(CIE_wavelengths, CIE_Y_entries, kCIESamplesNum);
-static const SpectralPowerDistribution kCIE_Z_SPD(CIE_wavelengths, CIE_Z_entries, kCIESamplesNum);
 
 
 class Spectrum
 {
 public:
-	Spectrum();
+	Spectrum() = default;
+	Spectrum(const float* wavelength, const float* values, uint32_t entriesNum);
 	Spectrum(const SpectralPowerDistribution& spd);
+	Spectrum(float v);
 
 	uint32_t Size() const;
-	float GetWavelength(uint32_t i) const;
-	float Eval(float wavelength) const;
 
 	float operator[](uint32_t i) const;
 	float& operator[](uint32_t i);
 
-	Spectrum& operator*(const float x);
+	Spectrum operator+(float x) const;
+	Spectrum operator-(float x) const;
+	Spectrum operator*(float x) const;
+	Spectrum operator/(float x) const;
+	Spectrum& operator*=(float x);
+	Spectrum operator+(const Spectrum& x) const;
+	Spectrum& operator+=(const Spectrum& x);
+	Spectrum operator-(const Spectrum& x) const;
+	Spectrum operator*(const Spectrum& x) const;
+	Spectrum& operator*=(const Spectrum& x);
+	Spectrum operator/(const Spectrum& x) const;
+	Spectrum safe_sqrt() const;
 
-	void ToXYZ(float& x,
-	           float& y,
-	           float& z,
-	           const Spectrum& CIE_X,
-	           const Spectrum& CIE_Y,
-	           const Spectrum& CIE_Z,
-	           float CIE_normalization);
-	void ToLinearRGB(float& x,
-	                 float& y,
-	                 float& z,
-	                 const Spectrum& CIE_X,
-	                 const Spectrum& CIE_Y,
-	                 const Spectrum& CIE_Z,
-	                 float CIE_normalization);
+	void ToXYZ(float& x, float& y, float& z);
+	void ToLinearRGB(float& x, float& y, float& z);
+
+	enum ESpectrumType
+	{
+		kReflectance,
+		kIlluminant
+	};
+
+	void FromLinearRGB(float r, float g, float b, ESpectrumType type = kReflectance);
 
 private:
-	float m_wavelength[kSpectrumSamples + 1] = {};
 	float m_values[kSpectrumSamples] = {};
 };
 
@@ -116,12 +116,6 @@ private:
 inline uint32_t Spectrum::Size() const
 {
 	return kSpectrumSamples;
-}
-
-
-inline float Spectrum::GetWavelength(uint32_t i) const
-{
-	return m_wavelength[i];
 }
 
 
@@ -137,9 +131,116 @@ inline float Spectrum::operator[](uint32_t i) const
 }
 
 
-inline Spectrum& Spectrum::operator*(const float x)
+inline Spectrum Spectrum::operator+(float x) const
+{
+	Spectrum ret = *this;
+	for (float& val : ret.m_values)
+		val += x;
+	return ret;
+}
+
+
+inline Spectrum Spectrum::operator-(float x) const
+{
+	Spectrum ret = *this;
+	for (float& val : ret.m_values)
+		val -= x;
+	return ret;
+}
+
+
+inline Spectrum Spectrum::operator*(float x) const
+{
+	Spectrum ret = *this;
+	for (float& val : ret.m_values)
+		val *= x;
+	return ret;
+}
+
+
+inline Spectrum Spectrum::operator/(float x) const
+{
+	Spectrum ret = *this;
+	for (float& val : ret.m_values)
+		val /= x;
+	return ret;
+}
+
+
+inline Spectrum& Spectrum::operator*=(float x)
 {
 	for (float& val : m_values)
 		val *= x;
 	return *this;
 }
+
+
+inline Spectrum Spectrum::operator+(const Spectrum& x) const
+{
+	Spectrum ret = *this;
+	for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		ret[i] += x[i];
+	return ret;
+}
+
+
+inline Spectrum& Spectrum::operator+=(const Spectrum& x)
+{
+	for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		m_values[i] += x[i];
+	return *this;
+}
+
+
+inline Spectrum Spectrum::operator-(const Spectrum& x) const
+{
+	Spectrum ret = *this;
+	for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		ret[i] -= x[i];
+	return ret;
+}
+
+
+inline Spectrum Spectrum::operator*(const Spectrum& x) const
+{
+	Spectrum ret = *this;
+	for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		ret[i] *= x[i];
+	return ret;
+}
+
+
+inline Spectrum& Spectrum::operator*=(const Spectrum& x)
+{
+	for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		m_values[i] *= x[i];
+	return *this;
+}
+
+
+inline Spectrum Spectrum::operator/(const Spectrum& x) const
+{
+	Spectrum ret = *this;
+	for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		ret[i] /= x[i];
+	return ret;
+}
+
+
+inline Spectrum Spectrum::safe_sqrt() const
+{
+	Spectrum ret = *this;
+	for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		ret[i] = std::sqrt(std::max(0.0f, m_values[i]));
+	return ret;
+}
+
+
+inline Spectrum operator*(float f, const Spectrum& spec)
+{
+	return spec * f;
+}
+
+
+void InitSpectrum();
+const Spectrum& GetD65();

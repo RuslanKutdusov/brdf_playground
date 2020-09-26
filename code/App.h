@@ -10,6 +10,7 @@
 #include "ObjRenderer.h"
 #include "PostProcess.h"
 #include "SpectralPowerDistribution.h"
+#include "Fresnel.h"
 
 
 __declspec(align(16)) struct GlobalConstBuffer
@@ -109,6 +110,44 @@ struct ObjectsGridSceneControls
 };
 
 
+class FresnelWindow
+{
+public:
+	void Init(const std::vector<FilePath>& spdFiles);
+	void Show();
+	void Update();
+
+private:
+	enum EPlotType
+	{
+		kFresnelPlot = 0,
+		kIORPlot,
+		kPlotTypesCount
+	};
+
+	std::vector<FilePath> m_spdFiles;
+	EPlotType m_plotType = kFresnelPlot;
+	bool m_opened = false;
+	const char* selectorIOR = "";
+
+	Spectrum m_etaSpectrum;
+	float m_etaSpectrumMaxVal = 0.0f;
+	Spectrum m_kSpectrum;
+	float m_kSpectrumMaxVal = 0.0f;
+	bool m_needToBuildPlot = false;
+	std::vector<XMVECTOR> m_accuratePlot;
+	bool m_drawAccuratePlot = true;
+	std::vector<XMVECTOR> m_schlickPlot;
+	bool m_drawSchlickPlot = true;
+	bool m_plotDrawRGB[3] = {true, true, true};
+
+	void BuildFresnelPlot(float plotCanvasWidth);
+	void DrawFresnelPlot();
+	void DrawIORPlot();
+	void LoadSPDs(const char* path);
+};
+
+
 class App
 {
 public:
@@ -122,6 +161,8 @@ private:
 	Device m_device;
 	Window m_window;
 	ImguiWrap m_imguiWrap;
+	FresnelWindow m_fresnelWindow;
+
 	FirstPersonCamera m_firstPersonCamera;
 	OrbitCamera m_orbitCamera;
 
@@ -170,11 +211,6 @@ private:
 	std::vector<FilePath> m_materials;
 	std::vector<FilePath> m_spdFiles;
 	std::vector<FilePath> m_merlMaterials;
-
-	Spectrum m_CIE_X;
-	Spectrum m_CIE_Y;
-	Spectrum m_CIE_Z;
-	float m_CIE_normalization;
 
 	void InitUI();
 	void OnNewFrame();

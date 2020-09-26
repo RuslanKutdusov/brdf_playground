@@ -38,7 +38,6 @@
     <ClCompile Include="code\Time.cpp" />
     <ClCompile Include="code\Precompiled.cpp" />
     <ClCompile Include="code\SpectralPowerDistribution.cpp" />
-    <ClCompile Include="code\GaussLobattoIntegrator.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="ResourceFiles">
@@ -105,6 +104,6 @@
     <ClInclude Include="code\Time.h" />
     <ClInclude Include="code\SpectralPowerDistribution.h" />
     <ClInclude Include="code\CIE.h" />
-    <ClInclude Include="code\GaussLobattoIntegrator.h" />
+    <ClInclude Include="code\Fresnel.h" />
   </ItemGroup>
 </Project>

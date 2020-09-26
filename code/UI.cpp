@@ -153,6 +153,8 @@ void App::InitUI()
 	EnumerateFiles("data\\MERL\\*", m_merlMaterials);
 	if (!m_merlMaterials.empty())
 		m_singleObjScene.merlMaterial = m_merlMaterials[0].c_str();
+
+	m_fresnelWindow.Init(m_spdFiles);
 }
 
 
@@ -175,6 +177,9 @@ void App::UpdateUI()
 			m_brdfRenderer.ReloadShaders();
 			m_postProcess.ReloadShaders();
 		}
+		ImGui::SameLine();
+		if (ImGui::Button("Fresnel viewer"))
+			m_fresnelWindow.Show();
 	}
 
 	if (ImGui::CollapsingHeader("Direct light", ImGuiTreeNodeFlags_DefaultOpen))
@@ -390,4 +395,273 @@ void App::UpdateUI()
 		}
 	}
 	ImGui::End();
+
+	m_fresnelWindow.Update();
+}
+
+
+void FresnelWindow::Init(const std::vector<FilePath>& spdFiles)
+{
+	m_spdFiles = spdFiles;
+	if (!m_spdFiles.empty())
+		LoadSPDs(m_spdFiles.front().c_str());
+}
+
+
+void FresnelWindow::Show()
+{
+	m_opened = true;
+}
+
+
+void FresnelWindow::Update()
+{
+	if (!m_opened)
+		return;
+
+	if (ImGui::Begin("Fresnel", &m_opened))
+	{
+		Combo("IOR", m_spdFiles, selectorIOR, [this](const char* selected, size_t idx) { LoadSPDs(selected); });
+		const char* plotTypes[] = {"Fresnel", "IOR"};
+		ImGui::Combo("Plot type", (int*)&m_plotType, plotTypes, kPlotTypesCount);
+
+		if (m_plotType == kFresnelPlot)
+			DrawFresnelPlot();
+		else if (m_plotType == kIORPlot)
+			DrawIORPlot();
+	}
+	ImGui::End();
+}
+
+
+void FresnelWindow::BuildFresnelPlot(float plotCanvasWidth)
+{
+	const float kPlotStepLength = 5.0f;
+	uint32_t plotStepsNum = (uint32_t)((plotCanvasWidth + kPlotStepLength - 1.0f) / kPlotStepLength);
+
+	if (m_needToBuildPlot || m_accuratePlot.size() != plotStepsNum)
+	{
+		m_accuratePlot.resize(plotStepsNum);
+		m_schlickPlot.resize(plotStepsNum);
+		float angleStep = XM_PI * 0.5f / plotStepsNum;
+		for (size_t i = 0; i < plotStepsNum; i++)
+		{
+			float angle = angleStep * i;
+			float cosTheta = cosf(angle);
+
+			Spectrum spectrum = FresnelConductorExact(cosTheta - 1e-06f, m_etaSpectrum, m_kSpectrum);
+			spectrum *= GetD65();
+			XMFLOAT3 color;
+			spectrum.ToLinearRGB(color.x, color.y, color.z);
+			m_accuratePlot[i] = XMLoadFloat3(&color);
+
+			float fc = powf(1.0f - cosTheta, 5.0f);
+			m_schlickPlot[i] = XMVectorAdd(XMVectorScale(m_accuratePlot[0], 1.0f - fc), XMVectorSet(fc, fc, fc, fc));
+		}
+		m_needToBuildPlot = false;
+	}
+}
+
+
+void FresnelWindow::DrawFresnelPlot()
+{
+	ImGui::Checkbox("Accurate", &m_drawAccuratePlot);
+	ImGui::Checkbox("Schlick", &m_drawSchlickPlot);
+	ImGui::Checkbox("R", &m_plotDrawRGB[0]);
+	ImGui::SameLine();
+	ImGui::Checkbox("G", &m_plotDrawRGB[1]);
+	ImGui::SameLine();
+	ImGui::Checkbox("B", &m_plotDrawRGB[2]);
+
+	float reflDigitsWidth = ImGui::CalcTextSize("0.0").x;
+
+	ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
+	ImVec2 canvas_sz = ImGui::GetContentRegionAvail();
+	if (canvas_sz.x < 50.0f)
+		canvas_sz.x = 50.0f;
+	if (canvas_sz.y < 50.0f)
+		canvas_sz.y = 50.0f;
+	ImVec2 canvas_p1 = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y);
+	ImVec2 plot_p0 = {canvas_p0.x + reflDigitsWidth, canvas_p0.y};
+	ImVec2 plot_p1 = {canvas_p1.x, canvas_p1.y - ImGui::GetFontSize()};
+	ImVec2 plot_sz = {plot_p1.x - plot_p0.x, plot_p1.y - plot_p0.y};
+
+	BuildFresnelPlot(plot_sz.x);
+
+	ImGui::InvisibleButton("canvas", canvas_sz, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+
+	// Draw border and background color
+	ImGuiIO& io = ImGui::GetIO();
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255));
+	draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
+
+	for (float y = 0.0f; y <= 1.0f; y += 0.2f)
+	{
+		char buf[16];
+		sprintf(buf, "%.1f", y);
+		float lineY = plot_p0.y + plot_sz.y - y * plot_sz.y;
+		float textY = lineY - ImGui::GetFontSize() * 0.5f;
+		textY = std::min(textY, plot_p1.y - ImGui::GetFontSize());
+		textY = std::max(textY, plot_p0.y);
+		draw_list->AddText({canvas_p0.x, textY}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
+		draw_list->AddLine({plot_p0.x, lineY}, {plot_p1.x, lineY}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
+	}
+
+	for (float angle = 0.0f; angle <= 90.0f; angle += 15.0f)
+	{
+		float lineX = plot_p0.x + plot_sz.x * ToRad(angle) / XM_PI * 2.0f;
+		draw_list->AddLine({lineX, plot_p0.y}, {lineX, plot_p1.y}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
+
+		char buf[16];
+		sprintf(buf, "%.0f", angle);
+		float textWidth = ImGui::CalcTextSize(buf).x;
+		float textX = lineX - textWidth * 0.5f;
+		textX = std::min(textX, plot_p1.x - textWidth);
+		textX = std::max(textX, plot_p0.x);
+		draw_list->AddText({textX, plot_p1.y}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
+	}
+
+	float xScale = plot_sz.x / (m_accuratePlot.size() - 1);
+	float yScale = plot_sz.y;
+
+	auto drawLine = [&plot_p0, &plot_sz, xScale, yScale, draw_list, this](size_t i, const std::vector<XMVECTOR>& plot, uint32_t channel, uint32_t color) {
+		if (!m_plotDrawRGB[channel])
+			return;
+
+		ImVec2 p0 = plot_p0;
+		p0.x += i * xScale;
+		p0.y += plot_sz.y - XMVectorGetByIndex(plot[i], channel) * yScale;
+
+		ImVec2 p1 = plot_p0;
+		p1.x += (i + 1) * xScale;
+		p1.y += plot_sz.y - XMVectorGetByIndex(plot[i + 1], channel) * yScale;
+
+		draw_list->AddLine(p0, p1, color);
+	};
+
+	for (size_t i = 0; i < m_accuratePlot.size() - 1; i++)
+	{
+		if (m_drawAccuratePlot)
+		{
+			drawLine(i, m_accuratePlot, 0, IM_COL32(0xff, 0, 0, 0xff));
+			drawLine(i, m_accuratePlot, 1, IM_COL32(0, 0xff, 0, 0xff));
+			drawLine(i, m_accuratePlot, 2, IM_COL32(0, 0, 0xff, 0xff));
+		}
+
+		if (m_drawSchlickPlot)
+		{
+			drawLine(i, m_schlickPlot, 0, IM_COL32(0x7f, 0, 0, 0xff));
+			drawLine(i, m_schlickPlot, 1, IM_COL32(0, 0x7f, 0, 0xff));
+			drawLine(i, m_schlickPlot, 2, IM_COL32(0, 0, 0x7f, 0xff));
+		}
+	}
+}
+
+
+void FresnelWindow::DrawIORPlot()
+{
+	float reflDigitsWidth = ImGui::CalcTextSize("0.0").x;
+
+	ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
+	ImVec2 canvas_sz = ImGui::GetContentRegionAvail();
+	if (canvas_sz.x < 50.0f)
+		canvas_sz.x = 50.0f;
+	if (canvas_sz.y < 50.0f)
+		canvas_sz.y = 50.0f;
+	ImVec2 canvas_p1 = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y);
+	ImVec2 plot_p0 = {canvas_p0.x + reflDigitsWidth, canvas_p0.y};
+	ImVec2 plot_p1 = {canvas_p1.x, canvas_p1.y - ImGui::GetFontSize()};
+	ImVec2 plot_sz = {plot_p1.x - plot_p0.x, plot_p1.y - plot_p0.y};
+
+	ImGui::InvisibleButton("canvas", canvas_sz, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+
+	// Draw border and background color
+	ImGuiIO& io = ImGui::GetIO();
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255));
+	draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
+
+	float maxY = std::max(m_etaSpectrumMaxVal, m_kSpectrumMaxVal);
+	maxY = std::ceilf(maxY);
+
+	const uint32_t kHorizontalLinesNum = 10;
+	for (uint32_t i = 0; i < kHorizontalLinesNum; i++)
+	{
+		float y = (float)i / (kHorizontalLinesNum - 1) * maxY;
+		char buf[16];
+		sprintf(buf, "%.1f", y);
+		float lineY = plot_p0.y + plot_sz.y - (y / maxY) * plot_sz.y;
+		float textY = lineY - ImGui::GetFontSize() * 0.5f;
+		textY = std::min(textY, plot_p1.y - ImGui::GetFontSize());
+		textY = std::max(textY, plot_p0.y);
+		draw_list->AddText({canvas_p0.x, textY}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
+		draw_list->AddLine({plot_p0.x, lineY}, {plot_p1.x, lineY}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
+	}
+
+	const uint32_t kVertLinesNum = 10;
+	for (uint32_t i = 0; i < kVertLinesNum; i++)
+	{
+		float scale = (float)i / (kVertLinesNum - 1);
+		float lineX = plot_p0.x + plot_sz.x * scale;
+		draw_list->AddLine({lineX, plot_p0.y}, {lineX, plot_p1.y}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
+
+		char buf[16];
+		float lambda = kSpectrumMinWavelength + scale * kSpectrumRange;
+		sprintf(buf, "%.0f", lambda);
+		float textWidth = ImGui::CalcTextSize(buf).x;
+		float textX = lineX - textWidth * 0.5f;
+		textX = std::min(textX, plot_p1.x - textWidth);
+		textX = std::max(textX, plot_p0.x);
+		draw_list->AddText({textX, plot_p1.y}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
+	}
+
+	float xScale = plot_sz.x / (kSpectrumSamples - 1);
+	float yScale = plot_sz.y;
+
+	auto drawLine = [&plot_p0, &plot_sz, xScale, yScale, draw_list, maxY](uint32_t i, const Spectrum& spectrum, uint32_t color) {
+		ImVec2 p0 = plot_p0;
+		p0.x += i * xScale;
+		p0.y += plot_sz.y - spectrum[i] / maxY * yScale;
+
+		ImVec2 p1 = plot_p0;
+		p1.x += (i + 1) * xScale;
+		p1.y += plot_sz.y - spectrum[i + 1] / maxY * yScale;
+
+		draw_list->AddLine(p0, p1, color);
+	};
+
+	for (uint32_t i = 0; i < kSpectrumSamples - 1; i++)
+	{
+		drawLine(i, m_etaSpectrum, IM_COL32(0xff, 0xff, 0, 0xff));
+		drawLine(i, m_kSpectrum, IM_COL32(0, 0xff, 0xff, 0xff));
+	}
+}
+
+
+void FresnelWindow::LoadSPDs(const char* path)
+{
+	selectorIOR = path;
+
+	FilePath filename = path;
+	filename.SetExtension(".eta.spd");
+	SpectralPowerDistribution etaSPD;
+	etaSPD.InitFromFile(filename.c_str());
+
+	m_etaSpectrum = Spectrum(etaSPD);
+	m_etaSpectrumMaxVal = -FLT_MAX;
+	for (uint32_t i = 0; i < m_etaSpectrum.Size(); i++)
+		m_etaSpectrumMaxVal = std::max(m_etaSpectrumMaxVal, m_etaSpectrum[i]);
+
+	filename = path;
+	filename.SetExtension(".k.spd");
+	SpectralPowerDistribution kSPD;
+	kSPD.InitFromFile(filename.c_str());
+
+	m_kSpectrum = Spectrum(kSPD);
+	m_kSpectrumMaxVal = -FLT_MAX;
+	for (uint32_t i = 0; i < m_kSpectrum.Size(); i++)
+		m_kSpectrumMaxVal = std::max(m_kSpectrumMaxVal, m_kSpectrum[i]);
+
+	m_needToBuildPlot = true;
 }

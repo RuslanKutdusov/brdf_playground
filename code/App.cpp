@@ -18,40 +18,8 @@ static void AppendXmlLine(std::string& xml, const char* format, ...)
 }
 
 
-static float safe_sqrt(float value)
+App::App()
 {
-	return std::sqrt(std::max(0.0f, value));
-}
-
-
-static float FresnelConductorExact(float cosThetaI, float eta, float k)
-{
-	/* Modified from "Optics" by K.D. Moeller, University Science Books, 1988 */
-
-	float cosThetaI2 = cosThetaI * cosThetaI, sinThetaI2 = 1 - cosThetaI2, sinThetaI4 = sinThetaI2 * sinThetaI2;
-
-	float temp1 = eta * eta - k * k - sinThetaI2;
-	float a2pb2 = safe_sqrt(temp1 * temp1 + 4 * k * k * eta * eta);
-	float a = safe_sqrt(0.5f * (a2pb2 + temp1));
-
-	float term1 = a2pb2 + cosThetaI2, term2 = 2 * a * cosThetaI;
-
-	float Rs2 = (term1 - term2) / (term1 + term2);
-
-	float term3 = a2pb2 * cosThetaI2 + sinThetaI4, term4 = term2 * sinThetaI2;
-
-	float Rp2 = Rs2 * (term3 - term4) / (term3 + term4);
-
-	return 0.5f * (Rp2 + Rs2);
-}
-
-
-App::App() : m_CIE_X(kCIE_X_SPD), m_CIE_Y(kCIE_Y_SPD), m_CIE_Z(kCIE_Z_SPD)
-{
-	m_CIE_normalization = 0.0f;
-	for (uint32_t i = 0; i < m_CIE_Y.Size(); ++i)
-		m_CIE_normalization += m_CIE_Y[i];
-	m_CIE_normalization = 1.0f / m_CIE_normalization;
 }
 
 
@@ -532,9 +500,9 @@ void App::ExportToMitsuba()
 	}
 
 	PerspectiveCamera* camera = GetCurrentCamera();
-	Float4 lookAt = ToFloat4(camera->GetPosition() + camera->GetDirection());
-	Float4 pos = ToFloat4(camera->GetPosition());
-	Float4 up = ToFloat4(camera->GetUp());
+	XMFLOAT4 lookAt = ToFloat4(camera->GetPosition() + camera->GetDirection());
+	XMFLOAT4 pos = ToFloat4(camera->GetPosition());
+	XMFLOAT4 up = ToFloat4(camera->GetUp());
 	RECT rect = m_window.GetClientRect();
 
 	AppendXmlLine(xml, "	<sensor type=\"perspective\">");
@@ -577,31 +545,12 @@ XMVECTOR App::ComputeF0(const char* ior)
 	path.SetExtension(".k.spd");
 	kSPD.InitFromFile(path.c_str());
 
-	const float kAirIOR = 1.00028;
 	Spectrum eta(etaSPD), k(kSPD);
-	eta = eta * kAirIOR;
-	k = k * kAirIOR;
-
-#if 1
-	float etaRGB[3], kRGB[3];
-	eta.ToLinearRGB(etaRGB[0], etaRGB[1], etaRGB[2], m_CIE_X, m_CIE_Y, m_CIE_Z, m_CIE_normalization);
-	k.ToLinearRGB(kRGB[0], kRGB[1], kRGB[2], m_CIE_X, m_CIE_Y, m_CIE_Z, m_CIE_normalization);
-
-	float F0[3];
-	const float cosTheta = 1.0f;
-	for (uint32_t i = 0; i < 3; i++)
-		F0[i] = FresnelConductorExact(cosTheta, etaRGB[i], kRGB[i]);
-	return XMVectorSet(F0[0], F0[1], F0[2], 1.0f);
-#else
-	Spectrum F0;
-	const float cosTheta = 1.0f;
-	for (uint32_t i = 0; i < kSpectrumSamples; i++)
-		F0[i] = FresnelConductorExact(cosTheta, eta[i], k[i]);
-
+	Spectrum F0 = FresnelConductorExact(1.0f - 1e-3f, eta, k);
+	F0 *= GetD65();
 	float r, g, b;
-	F0.ToLinearRGB(r, g, b, m_CIE_X, m_CIE_Y, m_CIE_Z, m_CIE_normalization);
+	F0.ToLinearRGB(r, g, b);
 	return XMVectorSet(r, g, b, 1.0f);
-#endif
 }
 
 
@@ -738,6 +687,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 		return 0;
 	}
+
+	InitSpectrum();
 
 	App app;
 	if (!app.Init())
