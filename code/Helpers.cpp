@@ -4,6 +4,12 @@
 using namespace DirectX;
 
 
+float Lerp(float t, float v1, float v2)
+{
+	return (1.0f - t) * v1 + t * v2;
+}
+
+
 float ToRad(float deg)
 {
 	return deg * XM_PI / 180.0f;

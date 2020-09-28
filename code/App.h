@@ -141,7 +141,7 @@ private:
 	bool m_drawSchlickPlot = true;
 	bool m_plotDrawRGB[3] = {true, true, true};
 
-	void BuildFresnelPlot(float plotCanvasWidth);
+	void BuildFresnelPlot(uint32_t pointsNum);
 	void DrawFresnelPlot();
 	void DrawIORPlot();
 	void LoadSPDs(const char* path);

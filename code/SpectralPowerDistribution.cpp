@@ -154,12 +154,6 @@ static std::string TrimString(const std::string& str)
 }
 
 
-inline float Lerp(float t, float v1, float v2)
-{
-	return (1.0f - t) * v1 + t * v2;
-}
-
-
 static float AverageSpectrumSamples(const float* lambda, const float* vals, uint32_t n, float lambdaStart, float lambdaEnd)
 {
 	// here is two implementations: one from pbrt, one from mitsuba 0.6.0, they are different and looks like pbrt version is more accurate

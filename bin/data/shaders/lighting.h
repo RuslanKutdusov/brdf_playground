@@ -152,7 +152,7 @@ float3 SpecularBRDF(float3 N, float3 L, float3 V, MaterialData materialData)
 float3 CalcDirectLight(float3 N, float3 L, float3 V, MaterialData materialData)
 {
 	float NoL = saturate(dot(N, L));
-	materialData.roughness = max(materialData.roughness, 1e-06);
+	materialData.roughness = max(materialData.roughness, 1e-04f);
 	float3 diffuse = DiffuseBRDF(N, L, V, materialData);
 	float3 specular = SpecularBRDF(N, L, V, materialData);
 	return (diffuse + specular) * NoL;

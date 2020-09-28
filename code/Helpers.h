@@ -7,7 +7,7 @@ inline XMFLOAT4 ToFloat4(const XMVECTOR& v)
 	return ret;
 }
 
-
+float Lerp(float t, float v1, float v2);
 float ToRad(float deg);
 float ToDeg(float rad);
 DirectX::XMVECTOR PackedSRGBToSRGB(uint32_t color);

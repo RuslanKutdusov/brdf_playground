@@ -6,6 +6,127 @@
 #include "Time.h"
 
 
+struct ImGuiPlot
+{
+public:
+	ImGuiPlot() = delete;
+	ImGuiPlot(float xMin, float xMax, const char* xFormat, float yMin, float yMax, const char* yFormat);
+	template <typename LAMBDA>
+	void DrawPlot(uint32_t pointsNum, uint32_t color, const LAMBDA& getPoint);
+	template <typename LAMBDA>
+	void DrawLineAndTooltip(const LAMBDA& tooltipScope);
+
+	float xMin;
+	float xMax;
+	float yMin;
+	float yMax;
+
+	ImVec2 canvas_p0;
+	ImVec2 canvas_p1;
+	ImVec2 canvas_sz;
+	ImVec2 plot_p0;
+	ImVec2 plot_p1;
+	ImVec2 plot_sz;
+};
+
+
+ImGuiPlot::ImGuiPlot(float xMin, float xMax, const char* xFormat, float yMin, float yMax, const char* yFormat) : xMin(xMin), xMax(xMax), yMin(yMin), yMax(yMax)
+{
+	char buf[256];
+	sprintf(buf, yFormat, yMax);
+	float yCaptionWidth = ImGui::CalcTextSize(buf).x;
+
+	canvas_p0 = ImGui::GetCursorScreenPos();
+	canvas_sz = ImGui::GetContentRegionAvail();
+	if (canvas_sz.x < 50.0f)
+		canvas_sz.x = 50.0f;
+	if (canvas_sz.y < 50.0f)
+		canvas_sz.y = 50.0f;
+	canvas_p1 = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y);
+	plot_p0 = {canvas_p0.x + yCaptionWidth, canvas_p0.y};
+	plot_p1 = {canvas_p1.x, canvas_p1.y - ImGui::GetFontSize()};
+	plot_sz = {plot_p1.x - plot_p0.x, plot_p1.y - plot_p0.y};
+
+	ImGui::InvisibleButton("canvas", canvas_sz, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+
+	// Draw border and background color
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255));
+	draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
+
+	const uint32_t kHorizontalLinesNum = 10;
+	for (uint32_t i = 0; i < kHorizontalLinesNum; i++)
+	{
+		float y = (float)i / (kHorizontalLinesNum - 1);
+
+		float lineY = plot_p0.y + (1.0f - y) * plot_sz.y;
+		draw_list->AddLine({plot_p0.x, lineY}, {plot_p1.x, lineY}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
+
+		float textY = lineY - ImGui::GetFontSize() * 0.5f;
+		textY = std::min(textY, plot_p1.y - ImGui::GetFontSize());
+		textY = std::max(textY, plot_p0.y);
+		sprintf(buf, yFormat, Lerp(y, yMin, yMax));
+		draw_list->AddText({canvas_p0.x, textY}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
+	}
+
+	const uint32_t kVertLinesNum = 10;
+	for (uint32_t i = 0; i < kVertLinesNum; i++)
+	{
+		float x = (float)i / (kVertLinesNum - 1);
+		float lineX = plot_p0.x + x * plot_sz.x;
+		draw_list->AddLine({lineX, plot_p0.y}, {lineX, plot_p1.y}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
+
+		sprintf(buf, xFormat, Lerp(x, xMin, xMax));
+		float textWidth = ImGui::CalcTextSize(buf).x;
+		float textX = lineX - textWidth * 0.5f;
+		textX = std::min(textX, plot_p1.x - textWidth);
+		textX = std::max(textX, plot_p0.x);
+		draw_list->AddText({textX, plot_p1.y}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
+	}
+}
+
+
+template <typename LAMBDA>
+void ImGuiPlot::DrawPlot(uint32_t pointsNum, uint32_t color, const LAMBDA& getPoint)
+{
+	if (!pointsNum)
+		return;
+
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	auto drawLine = [this, pointsNum, color, draw_list](uint32_t i, float y_i0, float y_i1) {
+		ImVec2 p0;
+		p0.x = plot_p0.x + (float)i / (pointsNum - 1) * plot_sz.x;
+		p0.y = plot_p0.y + (1.0f - (y_i0 - yMin) / (yMax - yMin)) * plot_sz.y;
+
+		ImVec2 p1;
+		p1.x = plot_p0.x + (float)(i + 1) / (pointsNum - 1) * plot_sz.x;
+		p1.y = plot_p0.y + (1.0f - (y_i1 - yMin) / (yMax - yMin)) * plot_sz.y;
+
+		draw_list->AddLine(p0, p1, color);
+	};
+
+	for (uint32_t i = 0; i < pointsNum - 1; i++)
+		drawLine(i, getPoint(i), getPoint(i + 1));
+}
+
+
+template <typename LAMBDA>
+void ImGuiPlot::DrawLineAndTooltip(const LAMBDA& tooltipScope)
+{
+	if (ImGui::IsMouseHoveringRect(plot_p0, plot_p1) && ImGui::IsWindowFocused())
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		float xPixels = io.MousePos.x - plot_p0.x;
+		float x = Lerp(xPixels / plot_sz.x, xMin, xMax);
+		ImDrawList* draw_list = ImGui::GetWindowDrawList();
+		draw_list->AddLine({io.MousePos.x, plot_p0.y}, {io.MousePos.x, plot_p1.y}, IM_COL32(0xff, 0xff, 0xff, 0xff));
+		ImGui::BeginTooltip();
+		tooltipScope(x);
+		ImGui::EndTooltip();
+	}
+}
+
+
 static bool ColorDialog(XMVECTOR& color)
 {
 	CHOOSECOLOR cc;
@@ -434,17 +555,14 @@ void FresnelWindow::Update()
 }
 
 
-void FresnelWindow::BuildFresnelPlot(float plotCanvasWidth)
+void FresnelWindow::BuildFresnelPlot(uint32_t pointsNum)
 {
-	const float kPlotStepLength = 5.0f;
-	uint32_t plotStepsNum = (uint32_t)((plotCanvasWidth + kPlotStepLength - 1.0f) / kPlotStepLength);
-
-	if (m_needToBuildPlot || m_accuratePlot.size() != plotStepsNum)
+	if (m_needToBuildPlot || m_accuratePlot.size() != (size_t)pointsNum)
 	{
-		m_accuratePlot.resize(plotStepsNum);
-		m_schlickPlot.resize(plotStepsNum);
-		float angleStep = XM_PI * 0.5f / plotStepsNum;
-		for (size_t i = 0; i < plotStepsNum; i++)
+		m_accuratePlot.resize(pointsNum);
+		m_schlickPlot.resize(pointsNum);
+		float angleStep = XM_PI * 0.5f / pointsNum;
+		for (uint32_t i = 0; i < pointsNum; i++)
 		{
 			float angle = angleStep * i;
 			float cosTheta = cosf(angle);
@@ -473,169 +591,66 @@ void FresnelWindow::DrawFresnelPlot()
 	ImGui::SameLine();
 	ImGui::Checkbox("B", &m_plotDrawRGB[2]);
 
-	float reflDigitsWidth = ImGui::CalcTextSize("0.0").x;
+	// start with 100 points, later adjust depending on canvas width
+	if (m_accuratePlot.size() == 0 || m_needToBuildPlot)
+		BuildFresnelPlot(100);
 
-	ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
-	ImVec2 canvas_sz = ImGui::GetContentRegionAvail();
-	if (canvas_sz.x < 50.0f)
-		canvas_sz.x = 50.0f;
-	if (canvas_sz.y < 50.0f)
-		canvas_sz.y = 50.0f;
-	ImVec2 canvas_p1 = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y);
-	ImVec2 plot_p0 = {canvas_p0.x + reflDigitsWidth, canvas_p0.y};
-	ImVec2 plot_p1 = {canvas_p1.x, canvas_p1.y - ImGui::GetFontSize()};
-	ImVec2 plot_sz = {plot_p1.x - plot_p0.x, plot_p1.y - plot_p0.y};
-
-	BuildFresnelPlot(plot_sz.x);
-
-	ImGui::InvisibleButton("canvas", canvas_sz, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-
-	// Draw border and background color
-	ImGuiIO& io = ImGui::GetIO();
-	ImDrawList* draw_list = ImGui::GetWindowDrawList();
-	draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255));
-	draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
-
-	for (float y = 0.0f; y <= 1.0f; y += 0.2f)
+	ImGuiPlot plot(0.0f, 90.0f, "%.0f", 0.0f, 1.0f, "%.1f");
+	uint32_t pointsNum = (uint32_t)m_accuratePlot.size();
+	if (m_drawAccuratePlot)
 	{
-		char buf[16];
-		sprintf(buf, "%.1f", y);
-		float lineY = plot_p0.y + plot_sz.y - y * plot_sz.y;
-		float textY = lineY - ImGui::GetFontSize() * 0.5f;
-		textY = std::min(textY, plot_p1.y - ImGui::GetFontSize());
-		textY = std::max(textY, plot_p0.y);
-		draw_list->AddText({canvas_p0.x, textY}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
-		draw_list->AddLine({plot_p0.x, lineY}, {plot_p1.x, lineY}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
+		uint32_t colors[] = {IM_COL32(0xff, 0, 0, 0xff), IM_COL32(0, 0xff, 0, 0xff), IM_COL32(0, 0, 0xff, 0xff)};
+		for (uint32_t c = 0; c < 3; c++)
+			if (m_plotDrawRGB[c])
+				plot.DrawPlot(pointsNum, colors[c], [this, c](uint32_t i) { return XMVectorGetByIndex(m_accuratePlot[i], c); });
 	}
 
-	for (float angle = 0.0f; angle <= 90.0f; angle += 15.0f)
+	if (m_drawSchlickPlot)
 	{
-		float lineX = plot_p0.x + plot_sz.x * ToRad(angle) / XM_PI * 2.0f;
-		draw_list->AddLine({lineX, plot_p0.y}, {lineX, plot_p1.y}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
-
-		char buf[16];
-		sprintf(buf, "%.0f", angle);
-		float textWidth = ImGui::CalcTextSize(buf).x;
-		float textX = lineX - textWidth * 0.5f;
-		textX = std::min(textX, plot_p1.x - textWidth);
-		textX = std::max(textX, plot_p0.x);
-		draw_list->AddText({textX, plot_p1.y}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
+		uint32_t colors[] = {IM_COL32(0x7f, 0, 0, 0xff), IM_COL32(0, 0x7f, 0, 0xff), IM_COL32(0, 0, 0x7f, 0xff)};
+		for (uint32_t c = 0; c < 3; c++)
+			if (m_plotDrawRGB[c])
+				plot.DrawPlot(pointsNum, colors[c], [this, c](uint32_t i) { return XMVectorGetByIndex(m_schlickPlot[i], c); });
 	}
 
-	float xScale = plot_sz.x / (m_accuratePlot.size() - 1);
-	float yScale = plot_sz.y;
-
-	auto drawLine = [&plot_p0, &plot_sz, xScale, yScale, draw_list, this](size_t i, const std::vector<XMVECTOR>& plot, uint32_t channel, uint32_t color) {
-		if (!m_plotDrawRGB[channel])
-			return;
-
-		ImVec2 p0 = plot_p0;
-		p0.x += i * xScale;
-		p0.y += plot_sz.y - XMVectorGetByIndex(plot[i], channel) * yScale;
-
-		ImVec2 p1 = plot_p0;
-		p1.x += (i + 1) * xScale;
-		p1.y += plot_sz.y - XMVectorGetByIndex(plot[i + 1], channel) * yScale;
-
-		draw_list->AddLine(p0, p1, color);
-	};
-
-	for (size_t i = 0; i < m_accuratePlot.size() - 1; i++)
-	{
+	plot.DrawLineAndTooltip([this, pointsNum](float x) {
+		uint32_t i = (uint32_t)(x / 90.0f * pointsNum);
+		char buf[256];
 		if (m_drawAccuratePlot)
 		{
-			drawLine(i, m_accuratePlot, 0, IM_COL32(0xff, 0, 0, 0xff));
-			drawLine(i, m_accuratePlot, 1, IM_COL32(0, 0xff, 0, 0xff));
-			drawLine(i, m_accuratePlot, 2, IM_COL32(0, 0, 0xff, 0xff));
+			sprintf(buf, "Accurate: [%.2f, %.2f, %.2f]", XMVectorGetX(m_accuratePlot[i]), XMVectorGetY(m_accuratePlot[i]), XMVectorGetZ(m_accuratePlot[i]));
+			ImGui::Text(buf);
 		}
-
-		if (m_drawSchlickPlot)
+		if (m_drawAccuratePlot)
 		{
-			drawLine(i, m_schlickPlot, 0, IM_COL32(0x7f, 0, 0, 0xff));
-			drawLine(i, m_schlickPlot, 1, IM_COL32(0, 0x7f, 0, 0xff));
-			drawLine(i, m_schlickPlot, 2, IM_COL32(0, 0, 0x7f, 0xff));
+			sprintf(buf, "Schlick:  [%.2f, %.2f, %.2f]", XMVectorGetX(m_schlickPlot[i]), XMVectorGetY(m_schlickPlot[i]), XMVectorGetZ(m_schlickPlot[i]));
+			ImGui::Text(buf);
 		}
-	}
+	});
+
+	const float kPlotStepLength = 5.0f;
+	pointsNum = (uint32_t)((plot.plot_sz.x + kPlotStepLength - 1.0f) / kPlotStepLength);
+	BuildFresnelPlot(pointsNum);
 }
 
 
 void FresnelWindow::DrawIORPlot()
 {
-	float reflDigitsWidth = ImGui::CalcTextSize("0.0").x;
-
-	ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
-	ImVec2 canvas_sz = ImGui::GetContentRegionAvail();
-	if (canvas_sz.x < 50.0f)
-		canvas_sz.x = 50.0f;
-	if (canvas_sz.y < 50.0f)
-		canvas_sz.y = 50.0f;
-	ImVec2 canvas_p1 = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y);
-	ImVec2 plot_p0 = {canvas_p0.x + reflDigitsWidth, canvas_p0.y};
-	ImVec2 plot_p1 = {canvas_p1.x, canvas_p1.y - ImGui::GetFontSize()};
-	ImVec2 plot_sz = {plot_p1.x - plot_p0.x, plot_p1.y - plot_p0.y};
-
-	ImGui::InvisibleButton("canvas", canvas_sz, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-
-	// Draw border and background color
-	ImGuiIO& io = ImGui::GetIO();
-	ImDrawList* draw_list = ImGui::GetWindowDrawList();
-	draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255));
-	draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
-
 	float maxY = std::max(m_etaSpectrumMaxVal, m_kSpectrumMaxVal);
 	maxY = std::ceilf(maxY);
+	ImGuiPlot plot(kSpectrumMinWavelength, kSpectrumMaxWavelength, "%.0f", 0.0f, maxY, "%.1f");
 
-	const uint32_t kHorizontalLinesNum = 10;
-	for (uint32_t i = 0; i < kHorizontalLinesNum; i++)
-	{
-		float y = (float)i / (kHorizontalLinesNum - 1) * maxY;
-		char buf[16];
-		sprintf(buf, "%.1f", y);
-		float lineY = plot_p0.y + plot_sz.y - (y / maxY) * plot_sz.y;
-		float textY = lineY - ImGui::GetFontSize() * 0.5f;
-		textY = std::min(textY, plot_p1.y - ImGui::GetFontSize());
-		textY = std::max(textY, plot_p0.y);
-		draw_list->AddText({canvas_p0.x, textY}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
-		draw_list->AddLine({plot_p0.x, lineY}, {plot_p1.x, lineY}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
-	}
+	plot.DrawPlot(kSpectrumSamples, IM_COL32(0xff, 0xff, 0, 0xff), [this](uint32_t i) { return m_etaSpectrum[i]; });
+	plot.DrawPlot(kSpectrumSamples, IM_COL32(0, 0xff, 0xff, 0xff), [this](uint32_t i) { return m_kSpectrum[i]; });
 
-	const uint32_t kVertLinesNum = 10;
-	for (uint32_t i = 0; i < kVertLinesNum; i++)
-	{
-		float scale = (float)i / (kVertLinesNum - 1);
-		float lineX = plot_p0.x + plot_sz.x * scale;
-		draw_list->AddLine({lineX, plot_p0.y}, {lineX, plot_p1.y}, IM_COL32(0x7f, 0x7f, 0x7f, 0xff));
-
-		char buf[16];
-		float lambda = kSpectrumMinWavelength + scale * kSpectrumRange;
-		sprintf(buf, "%.0f", lambda);
-		float textWidth = ImGui::CalcTextSize(buf).x;
-		float textX = lineX - textWidth * 0.5f;
-		textX = std::min(textX, plot_p1.x - textWidth);
-		textX = std::max(textX, plot_p0.x);
-		draw_list->AddText({textX, plot_p1.y}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
-	}
-
-	float xScale = plot_sz.x / (kSpectrumSamples - 1);
-	float yScale = plot_sz.y;
-
-	auto drawLine = [&plot_p0, &plot_sz, xScale, yScale, draw_list, maxY](uint32_t i, const Spectrum& spectrum, uint32_t color) {
-		ImVec2 p0 = plot_p0;
-		p0.x += i * xScale;
-		p0.y += plot_sz.y - spectrum[i] / maxY * yScale;
-
-		ImVec2 p1 = plot_p0;
-		p1.x += (i + 1) * xScale;
-		p1.y += plot_sz.y - spectrum[i + 1] / maxY * yScale;
-
-		draw_list->AddLine(p0, p1, color);
-	};
-
-	for (uint32_t i = 0; i < kSpectrumSamples - 1; i++)
-	{
-		drawLine(i, m_etaSpectrum, IM_COL32(0xff, 0xff, 0, 0xff));
-		drawLine(i, m_kSpectrum, IM_COL32(0, 0xff, 0xff, 0xff));
-	}
+	plot.DrawLineAndTooltip([this](float x) {
+		uint32_t i = (uint32_t)((x - kSpectrumMinWavelength) / kSpectrumRange * kSpectrumSamples);
+		char buf[256];
+		sprintf(buf, "eta: %.2f", m_etaSpectrum[i]);
+		ImGui::Text(buf);
+		sprintf(buf, "k:   %.2f", m_kSpectrum[i]);
+		ImGui::Text(buf);
+	});
 }
 
 
