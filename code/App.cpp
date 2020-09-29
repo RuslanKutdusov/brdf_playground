@@ -547,7 +547,7 @@ XMVECTOR App::ComputeF0(const char* ior)
 
 	Spectrum eta(etaSPD), k(kSPD);
 	Spectrum F0 = FresnelConductorExact(1.0f - 1e-3f, eta, k);
-	F0 *= GetD65();
+	F0 *= GetD65Normalized();
 	float r, g, b;
 	F0.ToLinearRGB(r, g, b);
 	return XMVectorSet(r, g, b, 1.0f);

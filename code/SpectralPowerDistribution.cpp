@@ -132,20 +132,9 @@ static Spectrum kCIE_Y;
 static Spectrum kCIE_Z;
 static float kCIE_Normalization;
 static Spectrum kD65;
-static Spectrum kRGBRefl2SpecWhite;
-static Spectrum kRGBRefl2SpecCyan;
-static Spectrum kRGBRefl2SpecMagenta;
-static Spectrum kRGBRefl2SpecYellow;
-static Spectrum kRGBRefl2SpecRed;
-static Spectrum kRGBRefl2SpecGreen;
-static Spectrum kRGBRefl2SpecBlue;
-static Spectrum kRGBIllum2SpecWhite;
-static Spectrum kRGBIllum2SpecCyan;
-static Spectrum kRGBIllum2SpecMagenta;
-static Spectrum kRGBIllum2SpecYellow;
-static Spectrum kRGBIllum2SpecRed;
-static Spectrum kRGBIllum2SpecGreen;
-static Spectrum kRGBIllum2SpecBlue;
+static Spectrum kD65Normalized;
+static Spectrum kRGBSpectrums[kRGBSpectrumsNum];
+
 
 static std::string TrimString(const std::string& str)
 {
@@ -196,7 +185,7 @@ static float AverageSpectrumSamples(const float* lambda, const float* vals, uint
 		return 0.0f;
 
 	float rangeStart = std::max(lambdaStart, lambda[0]);
-	float rangeEnd = std::min(lambdaEnd, lambda[n-1]);
+	float rangeEnd = std::min(lambdaEnd, lambda[n - 1]);
 
 	if (rangeEnd <= rangeStart)
 		return 0.0f;
@@ -336,7 +325,14 @@ Spectrum::Spectrum(float v) : Spectrum()
 }
 
 
-void Spectrum::ToXYZ(float& x, float& y, float& z)
+float Spectrum::Eval(float lambda) const
+{
+	uint32_t idx = (uint32_t)((lambda - kSpectrumMinWavelength) / kSpectrumRange * (kSpectrumSamples - 1));
+	return m_values[idx];
+}
+
+
+void Spectrum::ToXYZ(float& x, float& y, float& z) const
 {
 	x = y = z = 0.0f;
 	for (uint32_t i = 0; i < kSpectrumSamples; ++i)
@@ -352,7 +348,7 @@ void Spectrum::ToXYZ(float& x, float& y, float& z)
 }
 
 
-void Spectrum::ToLinearRGB(float& r, float& g, float& b)
+void Spectrum::ToLinearRGB(float& r, float& g, float& b) const
 {
 	float x, y, z;
 	ToXYZ(x, y, z);
@@ -372,46 +368,46 @@ void Spectrum::FromLinearRGB(float r, float g, float b, ESpectrumType type)
 		if (r <= g && r <= b)
 		{
 			// Compute reflectance spectrum with 'r' as minimum
-			result += kRGBRefl2SpecWhite * r;
+			result += kRGBSpectrums[kRGBRefl2SpecWhite] * r;
 			if (g <= b)
 			{
-				result += kRGBRefl2SpecCyan * (g - r);
-				result += kRGBRefl2SpecBlue * (b - g);
+				result += kRGBSpectrums[kRGBRefl2SpecCyan] * (g - r);
+				result += kRGBSpectrums[kRGBRefl2SpecBlue] * (b - g);
 			}
 			else
 			{
-				result += kRGBRefl2SpecCyan * (b - r);
-				result += kRGBRefl2SpecGreen * (g - b);
+				result += kRGBSpectrums[kRGBRefl2SpecCyan] * (b - r);
+				result += kRGBSpectrums[kRGBRefl2SpecGreen] * (g - b);
 			}
 		}
 		else if (g <= r && g <= b)
 		{
 			// Compute reflectance spectrum with 'g' as minimum
-			result += kRGBRefl2SpecWhite * g;
+			result += kRGBSpectrums[kRGBRefl2SpecWhite] * g;
 			if (r <= b)
 			{
-				result += (r - g) * kRGBRefl2SpecMagenta;
-				result += (b - r) * kRGBRefl2SpecBlue;
+				result += (r - g) * kRGBSpectrums[kRGBRefl2SpecMagenta];
+				result += (b - r) * kRGBSpectrums[kRGBRefl2SpecBlue];
 			}
 			else
 			{
-				result += (b - g) * kRGBRefl2SpecMagenta;
-				result += (r - b) * kRGBRefl2SpecRed;
+				result += (b - g) * kRGBSpectrums[kRGBRefl2SpecMagenta];
+				result += (r - b) * kRGBSpectrums[kRGBRefl2SpecRed];
 			}
 		}
 		else
 		{
 			// Compute reflectance spectrum with 'b' as minimum
-			result += b * kRGBRefl2SpecWhite;
+			result += b * kRGBSpectrums[kRGBRefl2SpecWhite];
 			if (r <= g)
 			{
-				result += (r - b) * kRGBRefl2SpecYellow;
-				result += (g - r) * kRGBRefl2SpecGreen;
+				result += (r - b) * kRGBSpectrums[kRGBRefl2SpecYellow];
+				result += (g - r) * kRGBSpectrums[kRGBRefl2SpecGreen];
 			}
 			else
 			{
-				result += (g - b) * kRGBRefl2SpecYellow;
-				result += (r - g) * kRGBRefl2SpecRed;
+				result += (g - b) * kRGBSpectrums[kRGBRefl2SpecYellow];
+				result += (r - g) * kRGBSpectrums[kRGBRefl2SpecRed];
 			}
 		}
 		result *= .94f;
@@ -422,46 +418,46 @@ void Spectrum::FromLinearRGB(float r, float g, float b, ESpectrumType type)
 		if (r <= g && r <= b)
 		{
 			// Compute illuminant spectrum with 'r' as minimum
-			result += r * kRGBIllum2SpecWhite;
+			result += r * kRGBSpectrums[kRGBIllum2SpecWhite];
 			if (g <= b)
 			{
-				result += (g - r) * kRGBIllum2SpecCyan;
-				result += (b - g) * kRGBIllum2SpecBlue;
+				result += (g - r) * kRGBSpectrums[kRGBIllum2SpecCyan];
+				result += (b - g) * kRGBSpectrums[kRGBIllum2SpecBlue];
 			}
 			else
 			{
-				result += (b - r) * kRGBIllum2SpecCyan;
-				result += (g - b) * kRGBIllum2SpecGreen;
+				result += (b - r) * kRGBSpectrums[kRGBIllum2SpecCyan];
+				result += (g - b) * kRGBSpectrums[kRGBIllum2SpecGreen];
 			}
 		}
 		else if (g <= r && g <= b)
 		{
 			// Compute illuminant spectrum with 'g' as minimum
-			result += g * kRGBIllum2SpecWhite;
+			result += g * kRGBSpectrums[kRGBIllum2SpecWhite];
 			if (r <= b)
 			{
-				result += (r - g) * kRGBIllum2SpecMagenta;
-				result += (b - r) * kRGBIllum2SpecBlue;
+				result += (r - g) * kRGBSpectrums[kRGBIllum2SpecMagenta];
+				result += (b - r) * kRGBSpectrums[kRGBIllum2SpecBlue];
 			}
 			else
 			{
-				result += (b - g) * kRGBIllum2SpecMagenta;
-				result += (r - b) * kRGBIllum2SpecRed;
+				result += (b - g) * kRGBSpectrums[kRGBIllum2SpecMagenta];
+				result += (r - b) * kRGBSpectrums[kRGBIllum2SpecRed];
 			}
 		}
 		else
 		{
 			// Compute illuminant spectrum with 'b' as minimum
-			result += b * kRGBIllum2SpecWhite;
+			result += b * kRGBSpectrums[kRGBIllum2SpecWhite];
 			if (r <= g)
 			{
-				result += (r - b) * kRGBIllum2SpecYellow;
-				result += (g - r) * kRGBIllum2SpecGreen;
+				result += (r - b) * kRGBSpectrums[kRGBIllum2SpecYellow];
+				result += (g - r) * kRGBSpectrums[kRGBIllum2SpecGreen];
 			}
 			else
 			{
-				result += (g - b) * kRGBIllum2SpecYellow;
-				result += (r - g) * kRGBIllum2SpecRed;
+				result += (g - b) * kRGBSpectrums[kRGBIllum2SpecYellow];
+				result += (r - g) * kRGBSpectrums[kRGBIllum2SpecRed];
 			}
 		}
 		result *= .86445f;
@@ -484,33 +480,61 @@ void InitSpectrum()
 	kCIE_Normalization = 1.0f / kCIE_Normalization;
 
 	kD65 = Spectrum(CIE_wavelengths, CIE_D65_entries, kCIESamplesNum);
+	kD65Normalized = kD65;
 	float x, y, z;
-	kD65.ToXYZ(x, y, z);
-	kD65 *= 1.0f / y;
+	kD65Normalized.ToXYZ(x, y, z);
+	kD65Normalized *= 1.0f / y;
 
 	/* Pre-integrate the Smits-style RGB to Spectrum conversion data */
-	kRGBRefl2SpecWhite = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecWhite_entries, RGB2Spec_samples);
-	kRGBRefl2SpecCyan = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecCyan_entries, RGB2Spec_samples);
-	kRGBRefl2SpecMagenta = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecMagenta_entries, RGB2Spec_samples);
-	kRGBRefl2SpecYellow = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecYellow_entries, RGB2Spec_samples);
-	kRGBRefl2SpecRed = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecRed_entries, RGB2Spec_samples);
-	kRGBRefl2SpecGreen = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecGreen_entries, RGB2Spec_samples);
-	kRGBRefl2SpecBlue = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecBlue_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBRefl2SpecWhite] = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecWhite_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBRefl2SpecCyan] = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecCyan_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBRefl2SpecMagenta] = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecMagenta_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBRefl2SpecYellow] = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecYellow_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBRefl2SpecRed] = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecRed_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBRefl2SpecGreen] = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecGreen_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBRefl2SpecBlue] = Spectrum(RGB2Spec_wavelengths, RGBRefl2SpecBlue_entries, RGB2Spec_samples);
 
-	float r, g, b;
-	kRGBRefl2SpecWhite.ToLinearRGB(r, g, b);
+	kRGBSpectrums[kRGBIllum2SpecWhite] = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecWhite_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBIllum2SpecCyan] = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecCyan_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBIllum2SpecMagenta] = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecMagenta_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBIllum2SpecYellow] = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecYellow_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBIllum2SpecRed] = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecRed_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBIllum2SpecGreen] = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecGreen_entries, RGB2Spec_samples);
+	kRGBSpectrums[kRGBIllum2SpecBlue] = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecBlue_entries, RGB2Spec_samples);
+}
 
-	kRGBIllum2SpecWhite = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecWhite_entries, RGB2Spec_samples);
-	kRGBIllum2SpecCyan = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecCyan_entries, RGB2Spec_samples);
-	kRGBIllum2SpecMagenta = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecMagenta_entries, RGB2Spec_samples);
-	kRGBIllum2SpecYellow = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecYellow_entries, RGB2Spec_samples);
-	kRGBIllum2SpecRed = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecRed_entries, RGB2Spec_samples);
-	kRGBIllum2SpecGreen = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecGreen_entries, RGB2Spec_samples);
-	kRGBIllum2SpecBlue = Spectrum(RGB2Spec_wavelengths, RGBIllum2SpecBlue_entries, RGB2Spec_samples);
+
+const Spectrum& GetCIE_X()
+{
+	return kCIE_X;
+}
+
+
+const Spectrum& GetCIE_Y()
+{
+	return kCIE_Y;
+}
+
+
+const Spectrum& GetCIE_Z()
+{
+	return kCIE_Z;
 }
 
 
 const Spectrum& GetD65()
 {
 	return kD65;
+}
+
+
+const Spectrum& GetD65Normalized()
+{
+	return kD65Normalized;
+}
+
+
+const Spectrum& GetRGBSpectrum(ERGBSpectrums spectrum)
+{
+	return kRGBSpectrums[spectrum];
 }

@@ -54,7 +54,7 @@ ImGuiPlot::ImGuiPlot(float xMin, float xMax, const char* xFormat, float yMin, fl
 	draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255));
 	draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
 
-	const uint32_t kHorizontalLinesNum = 10;
+	const uint32_t kHorizontalLinesNum = 11;
 	for (uint32_t i = 0; i < kHorizontalLinesNum; i++)
 	{
 		float y = (float)i / (kHorizontalLinesNum - 1);
@@ -69,7 +69,7 @@ ImGuiPlot::ImGuiPlot(float xMin, float xMax, const char* xFormat, float yMin, fl
 		draw_list->AddText({canvas_p0.x, textY}, IM_COL32(0xff, 0xff, 0xff, 0xff), buf);
 	}
 
-	const uint32_t kVertLinesNum = 10;
+	const uint32_t kVertLinesNum = 11;
 	for (uint32_t i = 0; i < kVertLinesNum; i++)
 	{
 		float x = (float)i / (kVertLinesNum - 1);
@@ -275,7 +275,7 @@ void App::InitUI()
 	if (!m_merlMaterials.empty())
 		m_singleObjScene.merlMaterial = m_merlMaterials[0].c_str();
 
-	m_fresnelWindow.Init(m_spdFiles);
+	m_plotsWindow.Init(m_spdFiles);
 }
 
 
@@ -299,8 +299,8 @@ void App::UpdateUI()
 			m_postProcess.ReloadShaders();
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Fresnel viewer"))
-			m_fresnelWindow.Show();
+		if (ImGui::Button("Plots window"))
+			m_plotsWindow.Show();
 	}
 
 	if (ImGui::CollapsingHeader("Direct light", ImGuiTreeNodeFlags_DefaultOpen))
@@ -517,124 +517,196 @@ void App::UpdateUI()
 	}
 	ImGui::End();
 
-	m_fresnelWindow.Update();
+	m_plotsWindow.Update();
 }
 
 
-void FresnelWindow::Init(const std::vector<FilePath>& spdFiles)
+void PlotsWindow::Init(const std::vector<FilePath>& spdFiles)
 {
 	m_spdFiles = spdFiles;
 	if (!m_spdFiles.empty())
 		LoadSPDs(m_spdFiles.front().c_str());
+
+	auto computeSpecMinMax = [](const Spectrum& spectrum, XMFLOAT2& minMax) {
+		for (uint32_t i = 0; i < kSpectrumSamples; i++)
+		{
+			minMax.x = std::min(minMax.x, spectrum[i]);
+			minMax.y = std::max(minMax.y, spectrum[i]);
+		}
+	};
+
+	m_cieMinMax = {0.0f, -FLT_MAX};
+	computeSpecMinMax(GetCIE_X(), m_cieMinMax);
+	computeSpecMinMax(GetCIE_Y(), m_cieMinMax);
+	computeSpecMinMax(GetCIE_Z(), m_cieMinMax);
+
+	m_rgbSpectrumsMinMax = {0.0f, -FLT_MAX};
+	for (uint32_t s = 0; s < kRGBSpectrumsNum; s++)
+		computeSpecMinMax(GetRGBSpectrum((ERGBSpectrums)s), m_rgbSpectrumsMinMax);
+
+	m_d65MinMax = {0.0f, -FLT_MAX};
+	computeSpecMinMax(GetD65(), m_d65MinMax);
+	m_d65NormalizedMinMax = {0.0f, -FLT_MAX};
+	computeSpecMinMax(GetD65Normalized(), m_d65NormalizedMinMax);
 }
 
 
-void FresnelWindow::Show()
+void PlotsWindow::Show()
 {
 	m_opened = true;
 }
 
 
-void FresnelWindow::Update()
+void PlotsWindow::Update()
 {
 	if (!m_opened)
 		return;
 
-	if (ImGui::Begin("Fresnel", &m_opened))
+	if (ImGui::Begin("Plots", &m_opened))
 	{
-		Combo("IOR", m_spdFiles, selectorIOR, [this](const char* selected, size_t idx) { LoadSPDs(selected); });
-		const char* plotTypes[] = {"Fresnel", "IOR"};
+		const char* plotTypes[] = {"Fresnel RGB", "Fresnel Spectral", "IOR", "CIE", "Spectrum"};
 		ImGui::Combo("Plot type", (int*)&m_plotType, plotTypes, kPlotTypesCount);
 
-		if (m_plotType == kFresnelPlot)
-			DrawFresnelPlot();
+		if (m_plotType == kFresnelRGBPlot || m_plotType == kFresnelSpectralPlot || m_plotType == kIORPlot)
+			Combo("IOR", m_spdFiles, selectorIOR, [this](const char* selected, size_t idx) { LoadSPDs(selected); });
+
+		if (m_plotType == kFresnelRGBPlot)
+			DrawFresnelRGBPlot();
+		else if (m_plotType == kFresnelSpectralPlot)
+			DrawFresnelSpectralPlot();
 		else if (m_plotType == kIORPlot)
 			DrawIORPlot();
+		else if (m_plotType == kCIEPlot)
+			DrawCIEPlot();
+		else if (m_plotType == kSpectrumPlot)
+			DrawSpectrumPlot();
 	}
 	ImGui::End();
 }
 
 
-void FresnelWindow::BuildFresnelPlot(uint32_t pointsNum)
+void PlotsWindow::BuildFresnelRGBPlot(uint32_t pointsNum)
 {
-	if (m_needToBuildPlot || m_accuratePlot.size() != (size_t)pointsNum)
+	if (m_fresnelRGBPlot.size() != (size_t)pointsNum)
 	{
-		m_accuratePlot.resize(pointsNum);
-		m_schlickPlot.resize(pointsNum);
-		float angleStep = XM_PI * 0.5f / pointsNum;
+		m_fresnelRGBPlot.resize(pointsNum);
+		float angleStep = XM_PI * 0.5f / (pointsNum - 1);
 		for (uint32_t i = 0; i < pointsNum; i++)
 		{
 			float angle = angleStep * i;
 			float cosTheta = cosf(angle);
 
 			Spectrum spectrum = FresnelConductorExact(cosTheta - 1e-06f, m_etaSpectrum, m_kSpectrum);
-			spectrum *= GetD65();
+			spectrum *= GetD65Normalized();
 			XMFLOAT3 color;
 			spectrum.ToLinearRGB(color.x, color.y, color.z);
-			m_accuratePlot[i] = XMLoadFloat3(&color);
-
-			float fc = powf(1.0f - cosTheta, 5.0f);
-			m_schlickPlot[i] = XMVectorAdd(XMVectorScale(m_accuratePlot[0], 1.0f - fc), XMVectorSet(fc, fc, fc, fc));
+			m_fresnelRGBPlot[i] = XMLoadFloat3(&color);
 		}
-		m_needToBuildPlot = false;
 	}
 }
 
 
-void FresnelWindow::DrawFresnelPlot()
+void PlotsWindow::DrawFresnelRGBPlot()
 {
-	ImGui::Checkbox("Accurate", &m_drawAccuratePlot);
+	ImGui::Checkbox("Accurate", &m_drawFresnelRGBPlot);
 	ImGui::Checkbox("Schlick", &m_drawSchlickPlot);
-	ImGui::Checkbox("R", &m_plotDrawRGB[0]);
+	ImGui::Checkbox("R", &m_fresnelDrawRGB[0]);
 	ImGui::SameLine();
-	ImGui::Checkbox("G", &m_plotDrawRGB[1]);
+	ImGui::Checkbox("G", &m_fresnelDrawRGB[1]);
 	ImGui::SameLine();
-	ImGui::Checkbox("B", &m_plotDrawRGB[2]);
+	ImGui::Checkbox("B", &m_fresnelDrawRGB[2]);
 
 	// start with 100 points, later adjust depending on canvas width
-	if (m_accuratePlot.size() == 0 || m_needToBuildPlot)
-		BuildFresnelPlot(100);
+	if (m_fresnelRGBPlot.empty())
+		BuildFresnelRGBPlot(100);
 
 	ImGuiPlot plot(0.0f, 90.0f, "%.0f", 0.0f, 1.0f, "%.1f");
-	uint32_t pointsNum = (uint32_t)m_accuratePlot.size();
-	if (m_drawAccuratePlot)
+	uint32_t pointsNum = (uint32_t)m_fresnelRGBPlot.size();
+	if (m_drawFresnelRGBPlot)
 	{
 		uint32_t colors[] = {IM_COL32(0xff, 0, 0, 0xff), IM_COL32(0, 0xff, 0, 0xff), IM_COL32(0, 0, 0xff, 0xff)};
 		for (uint32_t c = 0; c < 3; c++)
-			if (m_plotDrawRGB[c])
-				plot.DrawPlot(pointsNum, colors[c], [this, c](uint32_t i) { return XMVectorGetByIndex(m_accuratePlot[i], c); });
+			if (m_fresnelDrawRGB[c])
+				plot.DrawPlot(pointsNum, colors[c], [this, c](uint32_t i) { return XMVectorGetByIndex(m_fresnelRGBPlot[i], c); });
 	}
 
 	if (m_drawSchlickPlot)
 	{
 		uint32_t colors[] = {IM_COL32(0x7f, 0, 0, 0xff), IM_COL32(0, 0x7f, 0, 0xff), IM_COL32(0, 0, 0x7f, 0xff)};
 		for (uint32_t c = 0; c < 3; c++)
-			if (m_plotDrawRGB[c])
-				plot.DrawPlot(pointsNum, colors[c], [this, c](uint32_t i) { return XMVectorGetByIndex(m_schlickPlot[i], c); });
+			if (m_fresnelDrawRGB[c])
+			{
+				plot.DrawPlot(pointsNum, colors[c], [this, c, pointsNum](uint32_t i) {
+					float angle = Lerp((float)i / (pointsNum - 1), 0.0f, XM_PIDIV2);
+					XMVECTOR f = FresnelSchlick(m_fresnelRGBPlot[0], cosf(angle));
+					return XMVectorGetByIndex(f, c);
+				});
+			}
 	}
 
 	plot.DrawLineAndTooltip([this, pointsNum](float x) {
-		uint32_t i = (uint32_t)(x / 90.0f * pointsNum);
-		char buf[256];
-		if (m_drawAccuratePlot)
+		uint32_t i = (uint32_t)(x / 90.0f * (pointsNum - 1));
+		if (m_drawFresnelRGBPlot)
 		{
-			sprintf(buf, "Accurate: [%.2f, %.2f, %.2f]", XMVectorGetX(m_accuratePlot[i]), XMVectorGetY(m_accuratePlot[i]), XMVectorGetZ(m_accuratePlot[i]));
-			ImGui::Text(buf);
+			ImGui::Text("Accurate: [%.2f, %.2f, %.2f]", XMVectorGetX(m_fresnelRGBPlot[i]), XMVectorGetY(m_fresnelRGBPlot[i]),
+			            XMVectorGetZ(m_fresnelRGBPlot[i]));
 		}
-		if (m_drawAccuratePlot)
+		if (m_drawSchlickPlot)
 		{
-			sprintf(buf, "Schlick:  [%.2f, %.2f, %.2f]", XMVectorGetX(m_schlickPlot[i]), XMVectorGetY(m_schlickPlot[i]), XMVectorGetZ(m_schlickPlot[i]));
-			ImGui::Text(buf);
+			XMVECTOR f = FresnelSchlick(m_fresnelRGBPlot[0], cosf(ToRad(x)));
+			ImGui::Text("Schlick:  [%.2f, %.2f, %.2f]", XMVectorGetX(f), XMVectorGetY(f), XMVectorGetZ(f));
 		}
 	});
 
 	const float kPlotStepLength = 5.0f;
 	pointsNum = (uint32_t)((plot.plot_sz.x + kPlotStepLength - 1.0f) / kPlotStepLength);
-	BuildFresnelPlot(pointsNum);
+	BuildFresnelRGBPlot(pointsNum);
 }
 
 
-void FresnelWindow::DrawIORPlot()
+void PlotsWindow::BuildFresnelSpectralPlot(uint32_t pointsNum)
+{
+	if (m_fresnelSpectralPlot.size() != (size_t)pointsNum)
+	{
+		m_fresnelSpectralPlot.resize(pointsNum);
+		float angleStep = XM_PI * 0.5f / (pointsNum - 1);
+		for (uint32_t i = 0; i < pointsNum; i++)
+		{
+			float angle = angleStep * i;
+			float cosTheta = cosf(angle);
+			float eta = m_etaSpectrum.Eval(m_fresnelSpectralPlotLambda);
+			float k = m_kSpectrum.Eval(m_fresnelSpectralPlotLambda);
+			m_fresnelSpectralPlot[i] = FresnelConductorExact(cosTheta - 1e-06f, eta, k);
+		}
+	}
+}
+
+
+void PlotsWindow::DrawFresnelSpectralPlot()
+{
+	if (ImGui::SliderFloat("Wavelength", &m_fresnelSpectralPlotLambda, kSpectrumMinWavelength, kSpectrumMaxWavelength, "%1.f"))
+		m_fresnelSpectralPlot.clear();
+
+	// start with 100 points, later adjust depending on canvas width
+	if (m_fresnelSpectralPlot.empty())
+		BuildFresnelSpectralPlot(100);
+
+	ImGuiPlot plot(0.0f, 90.0f, "%.0f", 0.0f, 1.0f, "%.1f");
+	uint32_t pointsNum = (uint32_t)m_fresnelSpectralPlot.size();
+	plot.DrawPlot(pointsNum, IM_COL32(0xff, 0xff, 0, 0xff), [this](uint32_t i) { return m_fresnelSpectralPlot[i]; });
+
+	plot.DrawLineAndTooltip([this, pointsNum](float x) {
+		uint32_t i = (uint32_t)(x / 90.0f * (pointsNum - 1));
+		ImGui::Text("%.4f", m_fresnelSpectralPlot[i]);
+	});
+
+	const float kPlotStepLength = 5.0f;
+	pointsNum = (uint32_t)((plot.plot_sz.x + kPlotStepLength - 1.0f) / kPlotStepLength);
+	BuildFresnelSpectralPlot(pointsNum);
+}
+
+
+void PlotsWindow::DrawIORPlot()
 {
 	float maxY = std::max(m_etaSpectrumMaxVal, m_kSpectrumMaxVal);
 	maxY = std::ceilf(maxY);
@@ -644,17 +716,97 @@ void FresnelWindow::DrawIORPlot()
 	plot.DrawPlot(kSpectrumSamples, IM_COL32(0, 0xff, 0xff, 0xff), [this](uint32_t i) { return m_kSpectrum[i]; });
 
 	plot.DrawLineAndTooltip([this](float x) {
-		uint32_t i = (uint32_t)((x - kSpectrumMinWavelength) / kSpectrumRange * kSpectrumSamples);
-		char buf[256];
-		sprintf(buf, "eta: %.2f", m_etaSpectrum[i]);
-		ImGui::Text(buf);
-		sprintf(buf, "k:   %.2f", m_kSpectrum[i]);
-		ImGui::Text(buf);
+		ImGui::Text("eta: %.2f", m_etaSpectrum.Eval(x));
+		ImGui::Text("k:   %.2f", m_kSpectrum.Eval(x));
 	});
 }
 
 
-void FresnelWindow::LoadSPDs(const char* path)
+void PlotsWindow::DrawCIEPlot()
+{
+	const ImColor xColor(0xff, 0xff, 0, 0xff);
+	const ImColor yColor(0, 0xff, 0xff, 0xff);
+	const ImColor zColor(0xff, 0, 0xff, 0xff);
+
+	auto legend = [](ImColor color, const char* text) {
+		ImGui::TextColored(color, "-");
+		ImGui::SameLine();
+		ImGui::Text(text);
+	};
+	legend(xColor, "X");
+	ImGui::SameLine();
+	legend(yColor, "Y");
+	ImGui::SameLine();
+	legend(zColor, "Z");
+
+	float minY = std::floorf(m_cieMinMax.x);
+	float maxY = std::ceilf(m_cieMinMax.y);
+	ImGuiPlot plot(kSpectrumMinWavelength, kSpectrumMaxWavelength, "%.0f", minY, maxY, "%.1f");
+
+	plot.DrawPlot(kSpectrumSamples, xColor, [this](uint32_t i) { return GetCIE_X()[i]; });
+	plot.DrawPlot(kSpectrumSamples, yColor, [this](uint32_t i) { return GetCIE_Y()[i]; });
+	plot.DrawPlot(kSpectrumSamples, zColor, [this](uint32_t i) { return GetCIE_Z()[i]; });
+
+	plot.DrawLineAndTooltip([this](float x) {
+		ImGui::Text("X: %f", GetCIE_X().Eval(x));
+		ImGui::Text("Y: %f", GetCIE_Y().Eval(x));
+		ImGui::Text("Z: %f", GetCIE_Z().Eval(x));
+	});
+}
+
+
+void PlotsWindow::DrawSpectrumPlot()
+{
+	const char* plotTypes[] = {"RGBRefl2SpecWhite",   "RGBRefl2SpecCyan", "RGBRefl2SpecMagenta", "RGBRefl2SpecYellow", "RGBRefl2SpecRed",
+	                           "RGBRefl2SpecGreen",   "RGBRefl2SpecBlue", "RGBIllum2SpecWhite",  "RGBIllum2SpecCyan",  "RGBIllum2SpecMagenta",
+	                           "RGBIllum2SpecYellow", "RGBIllum2SpecRed", "RGBIllum2SpecGreen",  "RGBIllum2SpecBlue",  "D65",
+	                           "D65 normalized",      "Custom RGB"};
+	ImGui::Combo("Spectrum", (int*)&m_spectrumPlotType, plotTypes, _countof(plotTypes));
+
+	const Spectrum* spectrum = nullptr;
+	XMFLOAT2 minMax = {};
+	ImColor color(0xff, 0xff, 0, 0xff);
+	if (m_spectrumPlotType < kRGBSpectrumsNum)
+	{
+		spectrum = &GetRGBSpectrum((ERGBSpectrums)m_spectrumPlotType);
+		minMax = m_rgbSpectrumsMinMax;
+	}
+	else if (m_spectrumPlotType - kRGBSpectrumsNum == 0)
+	{
+		spectrum = &GetD65();
+		minMax = m_d65MinMax;
+	}
+	else if (m_spectrumPlotType - kRGBSpectrumsNum == 1)
+	{
+		spectrum = &GetD65Normalized();
+		minMax = m_d65NormalizedMinMax;
+	}
+	else if (m_spectrumPlotType - kRGBSpectrumsNum == 2)
+	{
+		ImGui::SliderFloat("R", &m_customRGB.x, 0.0f, 1.0f, "%.2f");
+		ImGui::SliderFloat("G", &m_customRGB.y, 0.0f, 1.0f, "%.2f");
+		ImGui::SliderFloat("B", &m_customRGB.z, 0.0f, 1.0f, "%.2f");
+		const char* specType[] = {"Reflectance", "Illuminant"};
+		ImGui::Combo("Type", (int*)&m_customRGBSpectrumType, specType, _countof(specType));
+
+		m_customRGBSpectrum.FromLinearRGB(m_customRGB.x, m_customRGB.y, m_customRGB.z, m_customRGBSpectrumType);
+
+		spectrum = &m_customRGBSpectrum;
+		minMax = {0.0f, 1.0f};
+
+		XMVECTOR colorSrgbVec = XMColorRGBToSRGB(XMLoadFloat3(&m_customRGB));
+		XMStoreFloat3((XMFLOAT3*)&color, colorSrgbVec);
+	}
+
+	float minY = std::floorf(minMax.x);
+	float maxY = std::ceilf(minMax.y);
+	ImGuiPlot plot(kSpectrumMinWavelength, kSpectrumMaxWavelength, "%.0f", minY, maxY, "%.1f");
+	plot.DrawPlot(kSpectrumSamples, color, [this, spectrum](uint32_t i) { return (*spectrum)[i]; });
+	plot.DrawLineAndTooltip([this, spectrum](float x) { ImGui::Text("%f", spectrum->Eval(x)); });
+}
+
+
+void PlotsWindow::LoadSPDs(const char* path)
 {
 	selectorIOR = path;
 
@@ -678,5 +830,6 @@ void FresnelWindow::LoadSPDs(const char* path)
 	for (uint32_t i = 0; i < m_kSpectrum.Size(); i++)
 		m_kSpectrumMaxVal = std::max(m_kSpectrumMaxVal, m_kSpectrum[i]);
 
-	m_needToBuildPlot = true;
+	m_fresnelRGBPlot.clear();
+	m_fresnelSpectralPlot.clear();
 }

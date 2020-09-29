@@ -4,7 +4,7 @@
 static const float kSpectrumMinWavelength = 360.0f;
 static const float kSpectrumMaxWavelength = 830.0f;
 static const float kSpectrumRange = kSpectrumMaxWavelength - kSpectrumMinWavelength;
-static const uint32_t kSpectrumSamples = 50;
+static const uint32_t kSpectrumSamples = (uint32_t)kSpectrumRange + 1;
 
 
 class SpectralPowerDistribution
@@ -97,12 +97,14 @@ public:
 	Spectrum operator/(const Spectrum& x) const;
 	Spectrum safe_sqrt() const;
 
-	void ToXYZ(float& x, float& y, float& z);
-	void ToLinearRGB(float& x, float& y, float& z);
+	float Eval(float lambda) const;
+
+	void ToXYZ(float& x, float& y, float& z) const;
+	void ToLinearRGB(float& x, float& y, float& z) const;
 
 	enum ESpectrumType
 	{
-		kReflectance,
+		kReflectance = 0,
 		kIlluminant
 	};
 
@@ -110,6 +112,26 @@ public:
 
 private:
 	float m_values[kSpectrumSamples] = {};
+};
+
+
+enum ERGBSpectrums
+{
+	kRGBRefl2SpecWhite,
+	kRGBRefl2SpecCyan,
+	kRGBRefl2SpecMagenta,
+	kRGBRefl2SpecYellow,
+	kRGBRefl2SpecRed,
+	kRGBRefl2SpecGreen,
+	kRGBRefl2SpecBlue,
+	kRGBIllum2SpecWhite,
+	kRGBIllum2SpecCyan,
+	kRGBIllum2SpecMagenta,
+	kRGBIllum2SpecYellow,
+	kRGBIllum2SpecRed,
+	kRGBIllum2SpecGreen,
+	kRGBIllum2SpecBlue,
+	kRGBSpectrumsNum
 };
 
 
@@ -243,4 +265,9 @@ inline Spectrum operator*(float f, const Spectrum& spec)
 
 
 void InitSpectrum();
+const Spectrum& GetCIE_X();
+const Spectrum& GetCIE_Y();
+const Spectrum& GetCIE_Z();
 const Spectrum& GetD65();
+const Spectrum& GetD65Normalized();
+const Spectrum& GetRGBSpectrum(ERGBSpectrums spectrum);

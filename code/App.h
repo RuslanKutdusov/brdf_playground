@@ -110,7 +110,7 @@ struct ObjectsGridSceneControls
 };
 
 
-class FresnelWindow
+class PlotsWindow
 {
 public:
 	void Init(const std::vector<FilePath>& spdFiles);
@@ -120,13 +120,16 @@ public:
 private:
 	enum EPlotType
 	{
-		kFresnelPlot = 0,
+		kFresnelRGBPlot = 0,
+		kFresnelSpectralPlot,
 		kIORPlot,
+		kCIEPlot,
+		kSpectrumPlot,
 		kPlotTypesCount
 	};
 
 	std::vector<FilePath> m_spdFiles;
-	EPlotType m_plotType = kFresnelPlot;
+	EPlotType m_plotType = kFresnelRGBPlot;
 	bool m_opened = false;
 	const char* selectorIOR = "";
 
@@ -134,16 +137,28 @@ private:
 	float m_etaSpectrumMaxVal = 0.0f;
 	Spectrum m_kSpectrum;
 	float m_kSpectrumMaxVal = 0.0f;
-	bool m_needToBuildPlot = false;
-	std::vector<XMVECTOR> m_accuratePlot;
-	bool m_drawAccuratePlot = true;
-	std::vector<XMVECTOR> m_schlickPlot;
+	std::vector<XMVECTOR> m_fresnelRGBPlot;
+	bool m_drawFresnelRGBPlot = true;
 	bool m_drawSchlickPlot = true;
-	bool m_plotDrawRGB[3] = {true, true, true};
+	bool m_fresnelDrawRGB[3] = {true, true, true};
+	float m_fresnelSpectralPlotLambda = kSpectrumMinWavelength + kSpectrumRange * 0.5f;
+	std::vector<float> m_fresnelSpectralPlot;
+	Spectrum m_customRGBSpectrum;
+	Spectrum::ESpectrumType m_customRGBSpectrumType = Spectrum::kReflectance;
+	XMFLOAT3 m_customRGB = {0.5f, 0.5f, 0.5f};
+	XMFLOAT2 m_cieMinMax = {0.0f, -FLT_MAX};
+	XMFLOAT2 m_rgbSpectrumsMinMax = {0.0f, -FLT_MAX};
+	XMFLOAT2 m_d65MinMax = {0.0f, -FLT_MAX};
+	XMFLOAT2 m_d65NormalizedMinMax = {0.0f, -FLT_MAX};
+	int m_spectrumPlotType = 0;
 
-	void BuildFresnelPlot(uint32_t pointsNum);
-	void DrawFresnelPlot();
+	void BuildFresnelRGBPlot(uint32_t pointsNum);
+	void DrawFresnelRGBPlot();
+	void BuildFresnelSpectralPlot(uint32_t pointsNum);
+	void DrawFresnelSpectralPlot();
 	void DrawIORPlot();
+	void DrawCIEPlot();
+	void DrawSpectrumPlot();
 	void LoadSPDs(const char* path);
 };
 
@@ -161,7 +176,7 @@ private:
 	Device m_device;
 	Window m_window;
 	ImguiWrap m_imguiWrap;
-	FresnelWindow m_fresnelWindow;
+	PlotsWindow m_plotsWindow;
 
 	FirstPersonCamera m_firstPersonCamera;
 	OrbitCamera m_orbitCamera;

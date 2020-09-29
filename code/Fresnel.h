@@ -65,3 +65,10 @@ inline float FresnelSchlick(float F0, float VoH)
 	float Fc = powf(1.0f - VoH, 5.0f);
 	return (1.0f - Fc) * F0 + Fc;
 }
+
+
+inline XMVECTOR FresnelSchlick(const XMVECTOR& F0, float VoH)
+{
+	float Fc = powf(1.0f - VoH, 5.0f);
+	return XMVectorAdd(XMVectorScale(F0, 1.0f - Fc), XMVectorSet(Fc, Fc, Fc, Fc));
+}
