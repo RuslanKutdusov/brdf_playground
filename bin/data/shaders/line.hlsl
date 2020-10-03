@@ -9,13 +9,6 @@ cbuffer LineParams : register(b1)
 };
 
 
-struct VsOutput
-{
-	float4 pos : SV_Position;
-	float3 worldPos : WORLD_POS;
-};
-
-
 float4 vs_main(uint vid : SV_VertexID) : SV_Position
 {
 	float3 pos = vid == 0 ? start : end;

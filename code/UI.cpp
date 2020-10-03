@@ -297,6 +297,7 @@ void App::UpdateUI()
 			m_objRenderer.ReloadShaders();
 			m_brdfRenderer.ReloadShaders();
 			m_postProcess.ReloadShaders();
+			m_resetSampling = true;
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Plots window"))

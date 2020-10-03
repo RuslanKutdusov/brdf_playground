@@ -248,7 +248,7 @@ float4 CalcIndirectLight(float3 N, float3 V, MaterialData materialData, uint2 ra
 		if (EnableDiffuseBRDF)
 		{
 			float3 L = ImportanceSampleDiffuse(Xi, N);
-			// L = normalize( L );
+			// L = normalize(L);
 			float NoL = saturate(dot(N, L));
 			if (NoL > 0)
 			{
